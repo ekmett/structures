@@ -29,25 +29,15 @@ module Data.Vector.Bit
 import Control.Lens as L
 import Control.Monad
 import Data.Bits
-import qualified Data.Vector.Generic as G
-import qualified Data.Vector.Generic.Mutable as GM
-import qualified Data.Vector.Unboxed as U
-import qualified Data.Vector.Unboxed.Mutable as UM
-import Data.Vector.Internal.Check as Ck
-import Data.Word
+import Data.Data
 import Data.Vector.Array
-import Data.Bit.Internal
-
-import Control.Lens as L
-import Control.Monad
-import Data.Bits
+import Data.Vector.Internal.Check as Ck
+import Data.Word
 import qualified Data.Vector.Generic as G
 import qualified Data.Vector.Generic.Mutable as GM
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector.Unboxed.Mutable as UM
-import Data.Vector.Internal.Check as Ck
-import Data.Word
-import Sparse.Matrix.Internal.Array
+import Prelude hiding (null)
 
 #define BOUNDS_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Bounds)
 
@@ -126,7 +116,7 @@ _BitVector = iso (\(BitVector _ v _) -> v) $ \v@(V_Bit n ws) -> BitVector n v $ 
 
 -- | @'rank' i v@ counts the number of 'True' bits up through and including the position @i@
 rank :: BitVector -> Int -> Int
-rank (BitVector n bv@(V_Bit _ ws) ps) i
+rank (BitVector n (V_Bit _ ws) ps) i
   = BOUNDS_CHECK(checkIndex) "rank" i n
   $ (ps U.! w) + popCount ((ws U.! w) .&. (bit (bt i + 1) - 1))
   where w = wd i
@@ -149,11 +139,7 @@ type instance Index BitVector = Int
 instance (Functor f, Contravariant f) => Contains f BitVector where
   contains i f (BitVector n as _) = coerce $ L.indexed f i (0 <= i && i < n && getBit (as U.! i))
 
-empty :: Map k v
-empty = Nil
-{-# INLINE empty #-}
-
-singleton :: (Arrayed k, Arrayed v) => Bool -> BitVector
+singleton :: Bool -> BitVector
 singleton True = true1
 singleton False = false1
 {-# INLINE singleton #-}

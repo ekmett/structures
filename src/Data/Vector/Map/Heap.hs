@@ -8,7 +8,6 @@ module Data.Vector.Map.Heap
 import Control.Lens
 import Data.Semigroup
 import Data.Vector.Fusion.Stream.Monadic
-import Data.Vector.Fusion.Stream.Size
 import Data.Vector.Fusion.Util
 
 -- bootstrapped non-empty catenable pairing heaps of streams, used for unioning data sets

@@ -7,36 +7,33 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE PatternGuards #-}
 module Data.Vector.Map
   ( Map(..)
   , empty
   , null
   , singleton
   , lookup
+  , insert
   ) where
 
 import Control.Lens as L
-import Control.Monad
 import Data.Bits
 import qualified Data.Vector.Generic as G
-import qualified Data.Vector.Generic.Mutable as GM
-import qualified Data.Vector.Unboxed as U
-import qualified Data.Vector.Unboxed.Mutable as UM
-import Data.Vector.Internal.Check as Ck
-import Data.Word
 import Data.Vector.Array
 import qualified Data.Vector.Bit as BV
+import Prelude hiding (null, lookup)
 
 #define BOUNDS_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Bounds)
 
 -- | This Map is implemented as an insert-only Cache Oblivious Lookahead Array (COLA) with amortized complexity bounds
 -- that are equal to those of a B-Tree when it is used ephemerally.
-data Map k v = Map {-# UNPACK #-} !Int !(Array k) {-# UNPACK #-} !BitVector !(Array v) !(Map k v) | Nil
+data Map k v = Map {-# UNPACK #-} !Int !(Array k) {-# UNPACK #-} !BV.BitVector !(Array v) !(Map k v) | Nil
 
 deriving instance (Show (Arr v v), Show (Arr k k)) => Show (Map k v)
 deriving instance (Read (Arr v v), Read (Arr k k)) => Read (Map k v)
 
-null :: Map k v -> Int
+null :: Map k v -> Bool
 null Nil = True
 null _   = False
 
@@ -52,28 +49,32 @@ lookup :: (Ord k, Arrayed k, Arrayed v) => k -> Map k v -> Maybe v
 lookup k m0 = start m0 where
   start Nil = Nothing
   start (Map n ks fwd vs m)
-    | ks G.! j == k, not (bv^.contains j) = Just (vs G.! l)
+    | ks G.! j == k, not (fwd^.contains j) = Just (vs G.! l)
     | otherwise = continue (dilate l)  m
     where j = search (\i -> ks G.! i >= k) 0 (n-1)
-          l = rank fwd j
+          l = BV.rank fwd j
 
-  continue lo Nil = Nothing
-  continue lo (Map n ks bv vs m)
-    | ks G.! j == k, not (bv^.contains j) = Just (vs G.! l)
+  continue _ Nil = Nothing
+  continue lo (Map n ks fwd vs m)
+    | ks G.! j == k, not (fwd^.contains j) = Just (vs G.! l)
     | otherwise = continue (dilate l) m
     where j = search (\i -> ks G.! i >= k) lo (min (lo+7) (n-1))
-          l = rank fwd j
+          l = BV.rank fwd j
 {-# INLINE lookup #-}
 
 insert :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
 insert k v Nil = singleton k v
-insert k v (Map n ks bv vs m) = undefined
+insert _ _ _ = error "TODO" -- (Map n ks bv vs m) = undefined
 
 -- * Utilities
 
-dilate, contract :: Int -> Int
+dilate :: Int -> Int
 dilate x = unsafeShiftL x 3
+
+{-
+contract :: Int -> Int
 contract x = unsafeShiftR x 3
+-}
 
 -- | assuming @l <= h@. Returns @h@ if the predicate is never @True@ over @[l..h)@
 search :: (Int -> Bool) -> Int -> Int -> Int
