@@ -1,0 +1,109 @@
+name:          structures
+category:      Data, Structures
+version:       0.1
+license:       BSD3
+cabal-version: >= 1.8
+license-file:  LICENSE
+author:        Edward A. Kmett
+maintainer:    Edward A. Kmett <ekmett@gmail.com>
+stability:     experimental
+homepage:      http://github.com/ekmett/structures
+bug-reports:   http://github.com/ekmett/structures/issues
+copyright:     Copyright (C) 2013 Edward A. Kmett
+build-type:    Custom
+synopsis:      "Advanced" Data Structures
+
+extra-source-files:
+  .ghci
+  .travis.yml
+  .gitignore
+  .vim.custom
+  CHANGELOG.markdown
+  README.markdown
+
+description:
+  This package is a playground for working with several types of advanced data structures including
+  wavelet trees and cache oblivious lookahead arrays.
+
+source-repository head
+  type: git
+  location: git://github.com/ekmett/structures.git
+
+-- You can disable the doctests test suite with -f-test-doctests
+flag test-doctests
+  default: True
+  manual: True
+
+-- You can disable the hlint test suite with -f-test-hlint
+flag test-hlint
+  default: True
+  manual: True
+
+library
+  build-depends:
+    base              >= 4     && < 5,
+    contravariant     >= 0.4.2 && < 1,
+    deepseq           >= 1.1   && < 1.4,
+    hybrid-vectors    >= 0.1   && < 1,
+    lens              >= 3.9   && < 4,
+    primitive         >= 0.5   && < 0.6,
+    transformers      >= 0.3   && < 0.4,
+    vector            >= 0.10  && < 0.11,
+    vector-algorithms >= 0.5   && < 0.6
+
+  hs-source-dirs: src
+
+  exposed-modules:
+    Data.Vector.Array
+    Data.Vector.Bit
+    Data.Vector.Map
+    Data.Vector.Map.Heap
+
+  ghc-options: -Wall
+
+  if flag(optimize)
+    ghc-options: -O2
+  else
+    ghc-options: -O0
+
+  if flag(llvm)
+    ghc-options: -fllvm
+
+  if impl(ghc<6.13)
+    Ghc-Options: -finline-if-enough-args -fno-method-sharing
+
+test-suite hlint
+  type: exitcode-stdio-1.0
+  main-is: hlint.hs
+  ghc-options: -w -threaded -rtsopts -with-rtsopts=-N
+  hs-source-dirs: tests
+
+  if !flag(test-hlint)
+    buildable: False
+  else
+    build-depends:
+      base,
+      hlint >= 1.7
+
+-- Verify the results of the examples
+test-suite doctests
+  type:           exitcode-stdio-1.0
+  main-is:        doctests.hs
+  ghc-options:    -Wall -threaded
+  hs-source-dirs: tests
+
+  if !flag(test-doctests)
+    buildable: False
+  else
+    build-depends:
+      base,
+      bytestring,
+      containers,
+      directory      >= 1.0,
+      deepseq,
+      doctest        >= 0.9.1,
+      filepath,
+      semigroups     >= 0.9,
+
+  if impl(ghc<7.6.1)
+    ghc-options: -Werror

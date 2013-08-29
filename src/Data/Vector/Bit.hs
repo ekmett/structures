@@ -1,46 +1,67 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-module COLA
-  ( Bit(..)
-  -- * Bit vectors
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+module Data.Vector.Bit
+  (
+  -- * Bits
+    Bit(..)
+  , _Bit
+  -- * Bit Vectors with rank
+  , BitVector(..)
+  , _BitVector
+  , rank
+  , null
+  , size
+  , singleton
+  , empty
+  -- * Vectors of Bits
   , UM.MVector(MV_Bit)
   , U.Vector(V_Bit)
-  -- * compact indexed dictionaries
-  , BitVector(..)
-  , bitVector
-  , rank
   ) where
 
+import Control.Lens as L
 import Control.Monad
 import Data.Bits
-import Data.Vector.Generic as G
-import Data.Vector.Generic.Mutable as GM
-import Data.Vector.Unboxed as U
-import Data.Vector.Unboxed.Mutable as UM
-import Data.Word
+import qualified Data.Vector.Generic as G
+import qualified Data.Vector.Generic.Mutable as GM
+import qualified Data.Vector.Unboxed as U
+import qualified Data.Vector.Unboxed.Mutable as UM
 import Data.Vector.Internal.Check as Ck
+import Data.Word
+import Data.Vector.Array
+import Data.Bit.Internal
+
+import Control.Lens as L
+import Control.Monad
+import Data.Bits
+import qualified Data.Vector.Generic as G
+import qualified Data.Vector.Generic.Mutable as GM
+import qualified Data.Vector.Unboxed as U
+import qualified Data.Vector.Unboxed.Mutable as UM
+import Data.Vector.Internal.Check as Ck
+import Data.Word
 import Sparse.Matrix.Internal.Array
 
 #define BOUNDS_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Bounds)
 
-newtype Bit = Bit { getBit :: Bool } deriving (Show,Read,Eq,Ord)
+newtype Bit = Bit { getBit :: Bool }
+  deriving (Show,Read,Eq,Ord,Enum,Bounded,Data,Typeable)
+
+_Bit :: Iso' Bit Bool
+_Bit = iso getBit Bit
+{-# INLINE _Bit #-}
+
 instance Arrayed Bit
-instance Unbox Bit
+instance UM.Unbox Bit
 
-wds :: Int -> Int
-wds x = unsafeShiftR (x + 63) 6
-
-wd :: Int -> Int
-wd x = unsafeShiftR x 6
-
-bt :: Int -> Int
-bt x = x .&. 63
-
-#ifndef HLINT
 data instance UM.MVector s Bit = MV_Bit {-# UNPACK #-} !Int !(UM.MVector s Word64)
-#endif
 
 instance GM.MVector U.MVector Bit where
   {-# INLINE basicLength #-}
@@ -94,44 +115,66 @@ instance G.Vector U.Vector Bit where
   basicUnsafeCopy (MV_Bit _ mu) (V_Bit _ u) = G.basicUnsafeCopy mu u
   elemseq _ b z = b `seq` z
 
--- TODO: Eq, Ord, Show, Read, Monoid
+#define BOUNDS_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Bounds)
 
--- a compact indexed dictionary representation with broadword rank in @2n@ bits space
 data BitVector = BitVector {-# UNPACK #-} !Int !(Array Bit) !(U.Vector Int)
   deriving (Eq,Ord,Show,Read)
 
-bitVector :: Array Bit -> BitVector
-bitVector v@(V_Bit n ws) = BitVector n v $ G.scanl (\a b -> a + popCount b) 0 ws
+_BitVector :: Iso' BitVector (Array Bit)
+_BitVector = iso (\(BitVector _ v _) -> v) $ \v@(V_Bit n ws) -> BitVector n v $ G.scanl (\a b -> a + popCount b) 0 ws
+{-# INLINE _BitVector #-}
 
 -- | @'rank' i v@ counts the number of 'True' bits up through and including the position @i@
-rank :: Int -> BitVector -> Int
-rank i (BitVector n bv@(V_Bit _ ws) ps)
+rank :: BitVector -> Int -> Int
+rank (BitVector n bv@(V_Bit _ ws) ps) i
   = BOUNDS_CHECK(checkIndex) "rank" i n
   $ (ps U.! w) + popCount ((ws U.! w) .&. (bit (bt i + 1) - 1))
   where w = wd i
+{-# INLINE rank #-}
 
--- | This data structure is an insert-only Cache Oblivious Lookahead Array (COLA) with amortized complexity bounds
--- that are equal to those of a B-Tree when it is used ephemerally, but which are cache oblivious.
---
--- No redundant binary counter is used. This means it is insufficient to fully deamortize the complexity bounds,
--- but the deamortization approach isn't functional and requires mutation and a leads to a much clunkier API in
--- Haskell
-data Map k v = Map !(Array k) {-# UNPACK #-} !BitVector !(Array v) !(Map k v) | Nil
+empty :: BitVector
+empty = _BitVector # G.empty
+{-# INLINE empty #-}
 
-{-
-lookup :: (Arrayed k, Arrayed v) => k -> Map k v -> Maybe v
-lookup m0@(Map ks0 _ _ _) = go 0 (G.length ks0) m0 where
-  go lo hi (Map ks fwd vs m) =
-    j = search (\i -> ks ! i >= k) lo hi
--}
+null :: BitVector -> Bool
+null (BitVector n _ _) = n == 0
+{-# INLINE null #-}
 
-{-
--- generate a thinned set of forwarding pointers from an array.
-pointers :: Arrayed v => Array v -> Array v
-pointers vs = G.backpermute vs (G.generate (unsafeShiftR (G.length vs) 3) (`unsafeShiftL` 3))
+size :: BitVector -> Int
+size (BitVector n _ _) = n
+{-# INLINE size #-}
 
-insert :: (Arrayed v, Arrayed a) => v -> a -> Map v a -> Map v a
-insert 
+type instance Index BitVector = Int
 
-cons :: (Arrayed v, Arrayed a) => Array v -> U.Vector Bit -> U.Vector Word -> Array a -> Map v a -> Map v a
--}
+instance (Functor f, Contravariant f) => Contains f BitVector where
+  contains i f (BitVector n as _) = coerce $ L.indexed f i (0 <= i && i < n && getBit (as U.! i))
+
+empty :: Map k v
+empty = Nil
+{-# INLINE empty #-}
+
+singleton :: (Arrayed k, Arrayed v) => Bool -> BitVector
+singleton True = true1
+singleton False = false1
+{-# INLINE singleton #-}
+
+-- * Implementation Details
+
+true1 :: BitVector
+true1 = _BitVector # U.singleton (Bit False)
+
+false1 :: BitVector
+false1 = _BitVector # U.singleton (Bit False)
+
+wds :: Int -> Int
+wds x = unsafeShiftR (x + 63) 6
+{-# INLINE wds #-}
+
+wd :: Int -> Int
+wd x = unsafeShiftR x 6
+{-# INLINE wd #-}
+
+bt :: Int -> Int
+bt x = x .&. 63
+{-# INLINE bt #-}
+
