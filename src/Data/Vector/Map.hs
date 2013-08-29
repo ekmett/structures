@@ -28,7 +28,7 @@ import Prelude hiding (null, lookup)
 
 -- | This Map is implemented as an insert-only Cache Oblivious Lookahead Array (COLA) with amortized complexity bounds
 -- that are equal to those of a B-Tree when it is used ephemerally.
-data Map k v = Map {-# UNPACK #-} !Int !(Array k) {-# UNPACK #-} !BV.BitVector !(Array v) !(Map k v) | Nil
+data Map k v = Map !(Array k) {-# UNPACK #-} !BV.BitVector !(Array v) !(Map k v) | Nil
 
 deriving instance (Show (Arr v v), Show (Arr k k)) => Show (Map k v)
 deriving instance (Read (Arr v v), Read (Arr k k)) => Read (Map k v)
@@ -36,29 +36,31 @@ deriving instance (Read (Arr v v), Read (Arr k k)) => Read (Map k v)
 null :: Map k v -> Bool
 null Nil = True
 null _   = False
+{-# INLINE null #-}
 
 empty :: Map k v
 empty = Nil
 {-# INLINE empty #-}
 
 singleton :: (Arrayed k, Arrayed v) => k -> v -> Map k v
-singleton k v = Map 1 (G.singleton k) (BV.singleton False) (G.singleton v) Nil
+singleton k v = Map (G.singleton k) (BV.singleton False) (G.singleton v) Nil
 {-# INLINE singleton #-}
 
 lookup :: (Ord k, Arrayed k, Arrayed v) => k -> Map k v -> Maybe v
 lookup k m0 = start m0 where
+  {-# INLINE start #-}
   start Nil = Nothing
-  start (Map n ks fwd vs m)
+  start (Map ks fwd vs m)
     | ks G.! j == k, not (fwd^.contains j) = Just (vs G.! l)
     | otherwise = continue (dilate l)  m
-    where j = search (\i -> ks G.! i >= k) 0 (n-1)
+    where j = search (\i -> ks G.! i >= k) 0 (BV.size fwd - 1)
           l = BV.rank fwd j
 
   continue _ Nil = Nothing
-  continue lo (Map n ks fwd vs m)
+  continue lo (Map ks fwd vs m)
     | ks G.! j == k, not (fwd^.contains j) = Just (vs G.! l)
     | otherwise = continue (dilate l) m
-    where j = search (\i -> ks G.! i >= k) lo (min (lo+7) (n-1))
+    where j = search (\i -> ks G.! i >= k) lo (min (lo+7) (BV.size fwd - 1))
           l = BV.rank fwd j
 {-# INLINE lookup #-}
 
@@ -70,6 +72,7 @@ insert _ _ _ = error "TODO" -- (Map n ks bv vs m) = undefined
 
 dilate :: Int -> Int
 dilate x = unsafeShiftL x 3
+{-# INLINE dilate #-}
 
 {-
 contract :: Int -> Int
