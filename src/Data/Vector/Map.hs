@@ -30,6 +30,7 @@ import qualified Data.Vector.Fusion.Stream.Monadic as Stream
 import Data.Vector.Fusion.Util
 import qualified Data.Vector.Generic as G
 import Data.Vector.Map.Fusion
+import GHC.Magic
 import Prelude hiding (null, lookup)
 
 #define BOUNDS_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Bounds)
@@ -68,13 +69,13 @@ lookup !k m0 = start m0 where
   continue lo (Map ks fwd vs m)
     | ks G.! j == k, not (fwd^.contains j) = Just $ vs G.! (j-l)
     | otherwise = continue (dilate l) m
-    where j = search (\i -> ks G.! i >= k) (max 0 (lo-7)) (min (lo+7) (BV.size fwd - 1)) -- TODO tighten!
+    where j = search (\i -> ks G.! i >= k) (max 0 (lo-8)) (min (lo+8) (BV.size fwd - 1)) -- TODO tighten!
           l = BV.rank fwd j
 {-# INLINE lookup #-}
 
 insert :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
 insert !k v Nil = singleton k v
-insert !k v m   = inserts (Stream.singleton (k, v)) 1 m
+insert !k v m   = inline inserts (Stream.singleton (k, v)) 1 m
 {-# INLINE insert #-}
 
 -- TODO: make this manually unroll a few times so we can get fusion at common shapes?
@@ -87,7 +88,7 @@ inserts xs n om@(Map ks fwds vs nm)
   | mergeThreshold n m = inserts (mergeStreams xs (actual ks fwds vs)) (n + m) nm
   | otherwise          = unstreams (mergeForwards xs ks) (n + unsafeShiftR (BV.size fwds + 7) 3) om
   where m = BV.size fwds
-{-# INLINE inserts #-}
+{-# INLINABLE inserts #-}
 
 mergeThreshold :: Int -> Int -> Bool
 mergeThreshold n m = n >= unsafeShiftR m 1
