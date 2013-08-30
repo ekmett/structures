@@ -7,6 +7,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE PatternGuards #-}
 module Data.Vector.Map
   ( Map(..)
@@ -54,7 +55,7 @@ singleton k v = Map (G.singleton k) (BV.singleton False) (G.singleton v) Nil
 {-# INLINE singleton #-}
 
 lookup :: (Ord k, Arrayed k, Arrayed v) => k -> Map k v -> Maybe v
-lookup k m0 = start m0 where
+lookup !k m0 = start m0 where
   {-# INLINE start #-}
   start Nil = Nothing
   start (Map ks fwd vs m)
@@ -72,8 +73,8 @@ lookup k m0 = start m0 where
 {-# INLINE lookup #-}
 
 insert :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
-insert k v Nil = singleton k v
-insert k v m   = inserts (Stream.singleton (k, v)) 1 m
+insert !k v Nil = singleton k v
+insert !k v m   = inserts (Stream.singleton (k, v)) 1 m
 {-# INLINE insert #-}
 
 -- TODO: make this manually unroll a few times so we can get fusion at common shapes?
