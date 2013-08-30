@@ -86,7 +86,7 @@ inserts xs n (Map ks fwds vs nm)
   where m = BV.size fwds
 
 mergeThreshold :: Int -> Int -> Bool
-mergeThreshold n m = n >= unsafeShiftL m 1
+mergeThreshold n m = n >= unsafeShiftR m 1
 
 unstreams :: (Arrayed k, Arrayed v) => Stream Id (k, Maybe v) -> Int -> Map k v -> Map k v
 unstreams (Stream stepa sa sz) n m = runST $ do
