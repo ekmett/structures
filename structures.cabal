@@ -48,6 +48,7 @@ library
     base              >= 4     && < 5,
     contravariant     >= 0.4.2 && < 1,
     deepseq           >= 1.1   && < 1.4,
+    ghc-prim,
     hybrid-vectors    >= 0.1   && < 1,
     lens              >= 3.9   && < 4,
     primitive         >= 0.5   && < 0.6,
@@ -64,7 +65,7 @@ library
     Data.Vector.Map
     Data.Vector.Map.Fusion
 
-  ghc-options: -Wall -O2
+  ghc-options: -Wall -O2 -fspec-constr
 
   if flag(llvm)
     ghc-options: -fllvm
@@ -107,3 +108,18 @@ test-suite doctests
 
   if impl(ghc<7.6.1)
     ghc-options: -Werror
+
+benchmark inserts
+  type:           exitcode-stdio-1.0
+  main-is:        inserts.hs
+  ghc-options:    -Wall -O2 -threaded
+  hs-source-dirs: benchmarks
+  build-depends:
+    array,
+    base,
+    containers,
+    criterion,
+    deepseq,
+    MonadRandom,
+    structures,
+    vector
