@@ -15,6 +15,7 @@ module Data.Vector.Map.Fusion
   ( mergeForwards
   , mergeStreams
   , actual
+  , forwards
   , unforwarded
   , munstreamsMax
   ) where
@@ -36,7 +37,7 @@ import qualified Data.Vector.Unboxed as U
 
 -- forwarding pointers
 forwards :: (Monad m, G.Vector v k) => v k -> Stream m k
-forwards v = Stream.generateM (unsafeShiftR (G.length v) 3) $ \i -> G.basicUnsafeIndexM v (unsafeShiftL i 3)
+forwards v = Stream.generateM (unsafeShiftR (G.length v + 7) 3) $ \i -> G.basicUnsafeIndexM v (unsafeShiftL i 3)
 
 unforwarded :: Monad m => Stream m (k, a) -> Stream m (k, Maybe a)
 unforwarded (Stream stepa sa0 sz) = Stream step sa0 sz where
