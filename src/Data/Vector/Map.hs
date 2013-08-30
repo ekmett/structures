@@ -57,14 +57,14 @@ lookup k m0 = start m0 where
   {-# INLINE start #-}
   start Nil = Nothing
   start (Map ks fwd vs m)
-    | ks G.! j == k, not (fwd^.contains j) = Just (vs G.! l)
+    | ks G.! j == k, not (fwd^.contains j) = Just $ vs G.! (j-l)
     | otherwise = continue (dilate l)  m
     where j = search (\i -> ks G.! i >= k) 0 (BV.size fwd - 1)
           l = BV.rank fwd j
 
   continue _ Nil = Nothing
   continue lo (Map ks fwd vs m)
-    | ks G.! j == k, not (fwd^.contains j) = Just (vs G.! l)
+    | ks G.! j == k, not (fwd^.contains j) = Just $ vs G.! (j-l)
     | otherwise = continue (dilate l) m
     where j = search (\i -> ks G.! i >= k) lo (min (lo+7) (BV.size fwd - 1))
           l = BV.rank fwd j
@@ -86,7 +86,7 @@ inserts xs n (Map ks fwds vs nm)
   where m = BV.size fwds
 
 mergeThreshold :: Int -> Int -> Bool
-mergeThreshold n m = n >= unsafeShiftR m 1
+mergeThreshold n m = n > unsafeShiftR m 1
 
 unstreams :: (Arrayed k, Arrayed v) => Stream Id (k, Maybe v) -> Int -> Map k v -> Map k v
 unstreams (Stream stepa sa sz) n m = runST $ do
