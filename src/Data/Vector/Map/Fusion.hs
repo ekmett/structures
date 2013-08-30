@@ -207,10 +207,3 @@ munstreamsMax s n
              , INTERNAL_CHECK(checkSlice) "munstreamMax" 0 n' n
                $ GM.unsafeSlice 0 n' vs
              )
-
-{-
-munstreams :: (PrimMonad m, GM.MVector u k, GM.MVector v a) => Stream m (k, Maybe a) -> m (u (PrimState m) k, U.MVector (PrimState m) Bit, v (PrimState m) a)
-munstreams s = case upperBound (Stream.size s) of
-               Just n  -> munstreamsMax     s n
-               Nothing -> munstreamsUnknown s
--}
