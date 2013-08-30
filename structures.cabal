@@ -123,3 +123,17 @@ benchmark inserts
     MonadRandom,
     structures,
     vector
+
+benchmark maps
+  type:           exitcode-stdio-1.0
+  main-is:        MapBench.hs
+  ghc-options:    -Wall -O2 -threaded -fllvm
+  hs-source-dirs: benchmarks
+  build-depends:
+    array,
+    base,
+    containers,
+    criterion,
+    mwc-random,
+    structures,
+    vector
