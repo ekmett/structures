@@ -31,7 +31,7 @@ import qualified Data.Vector.Generic as G
 import qualified Data.Vector.Generic.Mutable as GM
 import qualified Data.Vector.Unboxed as U
 
-#define BOUNDS_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Bounds)
+#define BOUNDS_CHECK(f)   (Ck.f __FILE__ __LINE__ Ck.Bounds)
 #define INTERNAL_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Internal)
 
 -- forwarding pointers
@@ -189,7 +189,7 @@ munstreamsMax s n
                          $ GM.unsafeWrite ks i k
                        INTERNAL_CHECK(checkIndex) "munstreamMax" i n
                          $ GM.unsafeWrite fwds i (Bit True)
-                       return (i+1,j+1)
+                       return (i+1,j)
           put (i,j) (k, Just a) = do
                        INTERNAL_CHECK(checkIndex) "munstreamMax" i n
                          $ GM.unsafeWrite ks i k
