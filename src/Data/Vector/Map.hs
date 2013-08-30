@@ -15,6 +15,7 @@ module Data.Vector.Map
   , singleton
   , lookup
   , insert
+  , shape
   ) where
 
 import Control.Lens as L
@@ -73,6 +74,7 @@ lookup k m0 = start m0 where
 insert :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
 insert k v Nil = singleton k v
 insert k v m   = inserts (Stream.singleton (k, v)) 1 m
+{-# INLINE insert #-}
 
 -- TODO: make this manually unroll a few times so we can get fusion at common shapes?
 -- TODO: if we don't know n, carve up the stream into size @log n@ (?) chunks online using effectful ST
@@ -84,6 +86,7 @@ inserts xs n om@(Map ks fwds vs nm)
   | mergeThreshold n m = inserts (mergeStreams xs (actual ks fwds vs)) (n + m) nm
   | otherwise          = unstreams (mergeForwards xs ks) (n + unsafeShiftR (BV.size fwds + 7) 3) om
   where m = BV.size fwds
+{-# INLINE inserts #-}
 
 mergeThreshold :: Int -> Int -> Bool
 mergeThreshold n m = n >= unsafeShiftR m 1
@@ -112,3 +115,9 @@ search p = go where
     | otherwise = go (m+1) h
     where m = l + div (h-l) 2
 {-# INLINE search #-}
+
+-- * Debugging
+
+shape :: Map k v -> [Int]
+shape Nil = []
+shape (Map _ fwds _ m) = BV.size fwds : shape m
