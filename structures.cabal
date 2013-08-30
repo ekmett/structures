@@ -62,7 +62,7 @@ library
     Data.Vector.Array
     Data.Vector.Bit
     Data.Vector.Map
-    Data.Vector.Map.Heap
+    Data.Vector.Map.Fusion
 
   ghc-options: -Wall -O2
 

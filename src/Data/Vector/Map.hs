@@ -22,13 +22,14 @@ import Data.Bits
 import qualified Data.Vector.Generic as G
 import Data.Vector.Array
 import qualified Data.Vector.Bit as BV
+import Data.Vector.Bit (BitVector)
 import Prelude hiding (null, lookup)
 
 #define BOUNDS_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Bounds)
 
 -- | This Map is implemented as an insert-only Cache Oblivious Lookahead Array (COLA) with amortized complexity bounds
 -- that are equal to those of a B-Tree when it is used ephemerally.
-data Map k v = Map !(Array k) {-# UNPACK #-} !BV.BitVector !(Array v) !(Map k v) | Nil
+data Map k v = Map !(Array k) {-# UNPACK #-} !BitVector !(Array v) !(Map k v) | Nil
 
 deriving instance (Show (Arr v v), Show (Arr k k)) => Show (Map k v)
 deriving instance (Read (Arr v v), Read (Arr k k)) => Read (Map k v)
@@ -73,11 +74,6 @@ insert _ _ _ = error "TODO" -- (Map n ks bv vs m) = undefined
 dilate :: Int -> Int
 dilate x = unsafeShiftL x 3
 {-# INLINE dilate #-}
-
-{-
-contract :: Int -> Int
-contract x = unsafeShiftR x 3
--}
 
 -- | assuming @l <= h@. Returns @h@ if the predicate is never @True@ over @[l..h)@
 search :: (Int -> Bool) -> Int -> Int -> Int
