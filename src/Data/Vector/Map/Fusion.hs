@@ -12,9 +12,11 @@
 --
 -----------------------------------------------------------------------------
 module Data.Vector.Map.Fusion
-  ( mergeStreamsWith, mergeStreamsWith0
-  , actual, forwards
-  , munstreams
+  ( mergeForwards
+  , mergeStreams
+  , actual
+  , unforwarded
+  , munstreamsMax
   ) where
 
 import Control.Lens
@@ -32,6 +34,65 @@ import qualified Data.Vector.Unboxed as U
 #define BOUNDS_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Bounds)
 #define INTERNAL_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Internal)
 
+-- forwarding pointers
+forwards :: (Monad m, G.Vector v k) => v k -> Stream m k
+forwards v = Stream.generateM (unsafeShiftR (G.length v) 3) $ \i -> G.basicUnsafeIndexM v (unsafeShiftL i 3)
+
+unforwarded :: Monad m => Stream m (k, a) -> Stream m (k, Maybe a)
+unforwarded (Stream stepa sa0 sz) = Stream step sa0 sz where
+  step sa = stepa sa >>= \ s -> return $ case s of
+    Yield (i, a) sa' -> Yield (i, Just a) sa'
+    Skip sa'         -> Skip sa'
+    Done             -> Done
+  {-# INLINE [0] step #-}
+{-# INLINE [1] unforwarded #-}
+
+data MergeForwardState sa sb i a
+  = MergeForwardL sa sb i a
+  | MergeForwardR sa sb i
+  | MergeForwardLeftEnded sb
+  | MergeForwardRightEnded sa
+  | MergeForwardStart sa sb
+
+mergeForwards :: (Monad m, G.Vector v k, Ord k) => Stream m (k, a) -> v k -> Stream m (k, Maybe a)
+mergeForwards (Stream stepa sa0 sza) vk = case forwards vk of
+  Stream stepb sb0 szb -> Stream step (MergeForwardStart sa0 sb0) (sza+szb)
+    where
+      step (MergeForwardStart sa sb) = do
+        r <- stepa sa
+        return $ case r of
+          Yield (i, a) sa' -> Skip (MergeForwardL sa' sb i a)
+          Skip sa'         -> Skip (MergeForwardStart sa' sb)
+          Done             -> Skip (MergeForwardLeftEnded sb)
+      step (MergeForwardL sa sb i a) = do
+        r <- stepb sb
+        return $ case r of
+          Yield j sb' | i <= j    -> Yield (i, Just a)  (MergeForwardR sa sb' j)
+                      | otherwise -> Yield (j, Nothing) (MergeForwardL sa sb' i a)
+          Skip sb' -> Skip (MergeForwardL sa sb' i a)
+          Done     -> Yield (i, Just a) (MergeForwardRightEnded sa)
+      step (MergeForwardR sa sb j) = do
+        r <- stepa sa
+        return $ case r of
+          Yield (i, a) sa' | i <= j    -> Yield (i, Just a)  (MergeForwardR sa' sb j)
+                           | otherwise -> Yield (j, Nothing) (MergeForwardL sa' sb i a)
+          Skip sa' -> Skip (MergeForwardR sa' sb j)
+          Done     -> Yield (j, Nothing) (MergeForwardLeftEnded sb)
+      step (MergeForwardLeftEnded sb) = do
+        r <- stepb sb
+        return $ case r of
+          Yield j sb' -> Yield (j, Nothing) (MergeForwardLeftEnded sb')
+          Skip sb'    -> Skip               (MergeForwardLeftEnded sb')
+          Done        -> Done
+      step (MergeForwardRightEnded sa) = do
+        r <- stepa sa
+        return $ case r of
+          Yield (i, a) sa' -> Yield (i, Just a) (MergeForwardRightEnded sa')
+          Skip sa'         -> Skip              (MergeForwardRightEnded sa')
+          Done             -> Done
+      {-# INLINE [0] step #-}
+{-# INLINE [1] mergeForwards #-}
+
 -- | The state for 'Stream' fusion that is used by 'mergeStreamsWith'.
 --
 -- This form permits cancellative addition.
@@ -43,11 +104,8 @@ data MergeState sa sb i a
   | MergeStart sa sb
 
 -- | This is the internal stream fusion combinator used to merge streams for addition.
---
--- This form permits cancellative addition.
-mergeStreamsWith0 :: (Monad m, Ord k) => (a -> a -> Maybe a) -> Stream m (k, a) -> Stream m (k, a) -> Stream m (k, a)
-mergeStreamsWith0 f (Stream stepa sa0 na) (Stream stepb sb0 nb)
-  = Stream step (MergeStart sa0 sb0) (toMax na + toMax nb) where
+mergeStreams :: (Monad m, Ord k) => Stream m (k, a) -> Stream m (k, a) -> Stream m (k, a)
+mergeStreams (Stream stepa sa0 na) (Stream stepb sb0 nb) = Stream step (MergeStart sa0 sb0) (toMax na + toMax nb) where
   step (MergeStart sa sb) = do
     r <- stepa sa
     return $ case r of
@@ -58,22 +116,18 @@ mergeStreamsWith0 f (Stream stepa sa0 na) (Stream stepb sb0 nb)
     r <- stepb sb
     return $ case r of
       Yield (j, b) sb' -> case compare i j of
-        LT -> Yield (i, a)     (MergeR sa sb' j b)
-        EQ -> case f a b of
-           Just c  -> Yield (i, c) (MergeStart sa sb')
-           Nothing -> Skip (MergeStart sa sb')
-        GT -> Yield (j, b)     (MergeL sa sb' i a)
+        LT -> Yield (i, a) (MergeR sa sb' j b)
+        EQ -> Yield (i, a) (MergeStart sa sb')
+        GT -> Yield (j, b) (MergeL sa sb' i a)
       Skip sb' -> Skip (MergeL sa sb' i a)
       Done     -> Yield (i, a) (MergeRightEnded sa)
   step (MergeR sa sb j b) = do
     r <- stepa sa
     return $ case r of
       Yield (i, a) sa' -> case compare i j of
-        LT -> Yield (i, a)     (MergeR sa' sb j b)
-        EQ -> case f a b of
-          Just c  -> Yield (i, c) (MergeStart sa' sb)
-          Nothing -> Skip (MergeStart sa' sb)
-        GT -> Yield (j, b)     (MergeL sa' sb i a)
+        LT -> Yield (i, a) (MergeR sa' sb j b)
+        EQ -> Yield (i, a) (MergeStart sa' sb)
+        GT -> Yield (j, b) (MergeL sa' sb i a)
       Skip sa' -> Skip (MergeR sa' sb j b)
       Done     -> Yield (j, b) (MergeLeftEnded sb)
   step (MergeLeftEnded sb) = do
@@ -89,58 +143,14 @@ mergeStreamsWith0 f (Stream stepa sa0 na) (Stream stepb sb0 nb)
       Skip sa'         -> Skip (MergeRightEnded sa')
       Done             -> Done
   {-# INLINE [0] step #-}
-{-# INLINE [1] mergeStreamsWith0 #-}
-
-
--- | This is the internal stream fusion combinator used to merge streams for addition.
-mergeStreamsWith :: (Monad m, Ord k) => (a -> a -> a) -> Stream m (k, a) -> Stream m (k, a) -> Stream m (k, a)
-mergeStreamsWith f (Stream stepa sa0 na) (Stream stepb sb0 nb)
-  = Stream step (MergeStart sa0 sb0) (toMax na + toMax nb) where
-  step (MergeStart sa sb) = do
-    r <- stepa sa
-    return $ case r of
-      Yield (i, a) sa' -> Skip (MergeL sa' sb i a)
-      Skip sa'         -> Skip (MergeStart sa' sb)
-      Done             -> Skip (MergeLeftEnded sb)
-  step (MergeL sa sb i a) = do
-    r <- stepb sb
-    return $ case r of
-      Yield (j, b) sb' -> case compare i j of
-        LT -> Yield (i, a)     (MergeR sa sb' j b)
-        EQ -> Yield (i, f a b) (MergeStart sa sb')
-        GT -> Yield (j, b)     (MergeL sa sb' i a)
-      Skip sb' -> Skip (MergeL sa sb' i a)
-      Done     -> Yield (i, a) (MergeRightEnded sa)
-  step (MergeR sa sb j b) = do
-    r <- stepa sa
-    return $ case r of
-      Yield (i, a) sa' -> case compare i j of
-        LT -> Yield (i, a)     (MergeR sa' sb j b)
-        EQ -> Yield (i, f a b) (MergeStart sa' sb)
-        GT -> Yield (j, b)     (MergeL sa' sb i a)
-      Skip sa' -> Skip (MergeR sa' sb j b)
-      Done     -> Yield (j, b) (MergeLeftEnded sb)
-  step (MergeLeftEnded sb) = do
-    r <- stepb sb
-    return $ case r of
-      Yield (j, b) sb' -> Yield (j, b) (MergeLeftEnded sb')
-      Skip sb'         -> Skip (MergeLeftEnded sb')
-      Done             -> Done
-  step (MergeRightEnded sa) = do
-    r <- stepa sa
-    return $ case r of
-      Yield (i, a) sa' -> Yield (i, a) (MergeRightEnded sa')
-      Skip sa'         -> Skip (MergeRightEnded sa')
-      Done             -> Done
-  {-# INLINE [0] step #-}
-{-# INLINE [1] mergeStreamsWith #-}
+{-# INLINE [1] mergeStreams #-}
 
 data Actual sk sb sv k
   = GetK sk sb sv
   | GetB k sk sb sv
   | GetV k sk sb sv
 
-actual :: (G.Vector u k, G.Vector v a) => u k -> BitVector -> v a -> Stream Id (k, Maybe a)
+actual :: (G.Vector u k, G.Vector v a) => u k -> BitVector -> v a -> Stream Id (k, a)
 actual uk bv va = case G.stream uk of
   Stream stepk sk0 sz -> case G.stream (bv^._BitVector) of
     Stream stepb sb0 _ -> case G.stream va of
@@ -156,20 +166,13 @@ actual uk bv va = case G.stream uk of
             Skip sb'        -> Skip $ GetB k sk sb' sv
             Done            -> Prelude.error "actual: BitVector stopped short"
           step (GetV k sk sb sv) = stepv sv >>= \ s -> return $ case s of
-            Yield v sv' -> Yield (k, Just v) $ GetK sk sb sv'
+            Yield v sv' -> Yield (k, v) $ GetK sk sb sv'
             Skip sv'    -> Skip $ GetV k sk sb sv'
             Done        -> Prelude.error "actual: values stopped short"
           {-# INLINE step #-}
 {-# INLINE [0] actual #-}
 
 -- * Utilities
-
--- forwarding pointers
-forwards :: (Monad m, G.Vector v k) => v k -> Stream m (k, Maybe a)
-forwards v = Stream.generateM (unsafeShiftR (G.length v) 3) $ \i -> do
-  k <- G.basicUnsafeIndexM v (unsafeShiftL i 3)
-  return (k, Nothing)
-{-# INLINE forwards #-}
 
 munstreamsMax :: (PrimMonad m, GM.MVector u k, GM.MVector v a) => Stream m (k, Maybe a) -> Int -> m (u (PrimState m) k, U.MVector (PrimState m) Bit, v (PrimState m) a)
 {-# INLINE munstreamsMax #-}
@@ -204,10 +207,9 @@ munstreamsMax s n
                $ GM.unsafeSlice 0 n' vs
              )
 
-munstreamsUnknown :: (PrimMonad m, GM.MVector u k, GM.MVector v a) => Stream m (k, Maybe a) -> m (u (PrimState m) k, U.MVector (PrimState m) Bit, v (PrimState m) a)
-munstreamsUnknown = Prelude.error "TODO"
-
+{-
 munstreams :: (PrimMonad m, GM.MVector u k, GM.MVector v a) => Stream m (k, Maybe a) -> m (u (PrimState m) k, U.MVector (PrimState m) Bit, v (PrimState m) a)
 munstreams s = case upperBound (Stream.size s) of
                Just n  -> munstreamsMax     s n
                Nothing -> munstreamsUnknown s
+-}

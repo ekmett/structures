@@ -18,11 +18,16 @@ module Data.Vector.Map
   ) where
 
 import Control.Lens as L
+import Control.Monad.ST
 import Data.Bits
-import qualified Data.Vector.Generic as G
 import Data.Vector.Array
+import Data.Vector.Bit (BitVector, _BitVector)
 import qualified Data.Vector.Bit as BV
-import Data.Vector.Bit (BitVector)
+import Data.Vector.Fusion.Stream.Monadic (Stream(..))
+import qualified Data.Vector.Fusion.Stream.Monadic as Stream
+import Data.Vector.Fusion.Util
+import qualified Data.Vector.Generic as G
+import Data.Vector.Map.Fusion
 import Prelude hiding (null, lookup)
 
 #define BOUNDS_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Bounds)
@@ -67,7 +72,30 @@ lookup k m0 = start m0 where
 
 insert :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
 insert k v Nil = singleton k v
-insert _ _ _ = error "TODO" -- (Map n ks bv vs m) = undefined
+insert k v m   = inserts (Stream.singleton (k, v)) 1 m
+
+-- TODO: make this manually unroll a few times so we can get fusion at common shapes?
+-- TODO: if we don't know n, carve up the stream into size @log n@ (?) chunks online using effectful ST
+-- actions to capture the tail, then just recursively merge them in.
+
+inserts :: (Ord k, Arrayed k, Arrayed v) => Stream Id (k, v) -> Int -> Map k v -> Map k v
+inserts xs n Nil = unstreams (unforwarded xs) n Nil
+inserts xs n (Map ks fwds vs nm)
+  | mergeThreshold n m = inserts (mergeStreams xs (actual ks fwds vs)) (n + m) nm
+  | otherwise          = unstreams (mergeForwards xs ks) n nm
+  where m = BV.size fwds
+
+mergeThreshold :: Int -> Int -> Bool
+mergeThreshold n m = n >= unsafeShiftL m 1
+
+unstreams :: (Arrayed k, Arrayed v) => Stream Id (k, Maybe v) -> Int -> Map k v -> Map k v
+unstreams (Stream stepa sa sz) n m = runST $ do
+  (mks, mfs, mvs) <- munstreamsMax (Stream (return . unId . stepa) sa sz) n
+  ks <- G.unsafeFreeze mks
+  fs <- G.unsafeFreeze mfs
+  vs <- G.unsafeFreeze mvs
+  return (Map ks (_BitVector # fs) vs m)
+{-# INLINE unstreams #-}
 
 -- * Utilities
 
