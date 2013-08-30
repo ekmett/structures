@@ -66,7 +66,7 @@ lookup k m0 = start m0 where
   continue lo (Map ks fwd vs m)
     | ks G.! j == k, not (fwd^.contains j) = Just $ vs G.! (j-l)
     | otherwise = continue (dilate l) m
-    where j = search (\i -> ks G.! i >= k) lo (min (lo+7) (BV.size fwd - 1))
+    where j = search (\i -> ks G.! i >= k) (max 0 (lo-7)) (min (lo+7) (BV.size fwd - 1)) -- TODO tighten!
           l = BV.rank fwd j
 {-# INLINE lookup #-}
 
@@ -80,13 +80,13 @@ insert k v m   = inserts (Stream.singleton (k, v)) 1 m
 
 inserts :: (Ord k, Arrayed k, Arrayed v) => Stream Id (k, v) -> Int -> Map k v -> Map k v
 inserts xs n Nil = unstreams (unforwarded xs) n Nil
-inserts xs n (Map ks fwds vs nm)
+inserts xs n om@(Map ks fwds vs nm)
   | mergeThreshold n m = inserts (mergeStreams xs (actual ks fwds vs)) (n + m) nm
-  | otherwise          = unstreams (mergeForwards xs ks) n nm
+  | otherwise          = unstreams (mergeForwards xs ks) (n + unsafeShiftR (BV.size fwds + 7) 3) om
   where m = BV.size fwds
 
 mergeThreshold :: Int -> Int -> Bool
-mergeThreshold n m = n > unsafeShiftR m 1
+mergeThreshold n m = n >= unsafeShiftR m 1
 
 unstreams :: (Arrayed k, Arrayed v) => Stream Id (k, Maybe v) -> Int -> Map k v -> Map k v
 unstreams (Stream stepa sa sz) n m = runST $ do
