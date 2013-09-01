@@ -29,6 +29,17 @@ source-repository head
   type: git
   location: git://github.com/ekmett/structures.git
 
+-- You can disable the QuickCheck tests with -f-test-properties
+flag test-properties
+  default: True
+  manual: True
+
+-- You can disable the HUnit tests with -f-test-hunit
+-- NB: We have no hunit tests, so this is disabled.
+flag test-hunit
+  default: False
+  manual: True
+
 -- You can disable the doctests test suite with -f-test-doctests
 flag test-doctests
   default: True
@@ -73,6 +84,40 @@ library
   if impl(ghc<6.13)
     Ghc-Options: -finline-if-enough-args -fno-method-sharing
 
+test-suite properties
+  type: exitcode-stdio-1.0
+  main-is: properties.hs
+  ghc-options: -w -threaded -rtsopts -with-rtsopts=-N
+  hs-source-dirs: tests 
+
+  if !flag(test-properties)
+    buildable: False
+  else
+    build-depends:
+      base,
+      structures,
+      QuickCheck       >= 2.4,
+      tasty            >= 0.3,
+      tasty-quickcheck >= 0.3,
+      tasty-th         >= 0.1.1
+
+test-suite hunit
+  type: exitcode-stdio-1.0
+  main-is: hunit.hs
+  ghc-options: -w -threaded -rtsopts -with-rtsopts=-N
+  hs-source-dirs: tests 
+
+  if !flag(test-hunit)
+    buildable: False
+  else
+    build-depends:
+      base,
+      structures,
+      QuickCheck       >= 2.4,
+      tasty            >= 0.3,
+      tasty-hunit      >= 0.2,
+      tasty-th         >= 0.1.1
+
 test-suite hlint
   type: exitcode-stdio-1.0
   main-is: hlint.hs
@@ -108,6 +153,8 @@ test-suite doctests
 
   if impl(ghc<7.6.1)
     ghc-options: -Werror
+
+
 
 benchmark inserts
   type:           exitcode-stdio-1.0
