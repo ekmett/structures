@@ -96,6 +96,7 @@ test-suite properties
     build-depends:
       base,
       structures,
+      deepseq,
       QuickCheck       >= 2.4,
       tasty            >= 0.3,
       tasty-quickcheck >= 0.3,
