@@ -18,12 +18,6 @@ import Data.Vector.Map as V
 
 --------------------------------------------------------------------------------
 
-instance NFData (V.Map k v)
-
-type UMap = V.Map Int ()
-
---------------------------------------------------------------------------------
-
 prop_null :: Int -> Bool
 prop_null x =
   V.null V.empty == True &&
