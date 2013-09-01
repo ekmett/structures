@@ -16,6 +16,7 @@ module Data.Vector.Map
   , singleton
   , lookup
   , insert
+  , fromList
   , shape
   ) where
 
@@ -103,6 +104,10 @@ unstreams (Stream stepa sa sz) n m = runST $ do
   vs <- G.unsafeFreeze mvs
   return (Map ks (_BitVector # fs) vs m)
 {-# INLINE unstreams #-}
+
+fromList :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
+fromList xs = foldr (\(k,v) m -> insert k v m) empty xs
+{-# INLINE fromList #-}
 
 -- * Utilities
 
