@@ -1,5 +1,6 @@
 module Main where
 
+import Data.Foldable as F
 import Data.Vector.Map as V
 import Data.Map as M
 import Control.Monad.Random
@@ -10,13 +11,17 @@ import Control.DeepSeq
 instance NFData (V.Map k v)
 
 buildV :: Int -> V.Map Int Int
-buildV n = Prelude.foldr (join V.insert) V.empty $ take n $ randoms (mkStdGen 1)
+buildV n = F.foldl' (flip (join V.insert)) V.empty $ take n $ randoms (mkStdGen 1)
 
 buildM :: Int -> M.Map Int Int
-buildM n = Prelude.foldr (join M.insert) M.empty $ take n $ randoms (mkStdGen 1)
+buildM n = F.foldl' (flip (join M.insert)) M.empty $ take n $ randoms (mkStdGen 1)
 
 main :: IO ()
 main = defaultMain
-  [ bench "COLA insert 10k"  $ nf buildV 10000
+  [ bench "COLA insert 10k"     $ nf buildV 10000
   , bench "Data.Map insert 10k" $ nf buildM 10000
+  , bench "COLA insert 100k"     $ nf buildV 100000
+  , bench "Data.Map insert 100k" $ nf buildM 100000
+  , bench "COLA insert 1m"     $ nf buildV 1000000
+  , bench "Data.Map insert 1m" $ nf buildM 1000000
   ]
