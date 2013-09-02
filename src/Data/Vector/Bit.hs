@@ -147,7 +147,7 @@ singleton False = false1
 -- * Implementation Details
 
 true1 :: BitVector
-true1 = _BitVector # U.singleton (Bit False)
+true1 = _BitVector # U.singleton (Bit True)
 
 false1 :: BitVector
 false1 = _BitVector # U.singleton (Bit False)
