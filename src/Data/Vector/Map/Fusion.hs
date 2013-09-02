@@ -31,13 +31,14 @@ import Data.Vector.Internal.Check as Ck
 import qualified Data.Vector.Generic as G
 import qualified Data.Vector.Generic.Mutable as GM
 import qualified Data.Vector.Unboxed as U
+import Data.Vector.Map.Tuning
 
 #define BOUNDS_CHECK(f)   (Ck.f __FILE__ __LINE__ Ck.Bounds)
 #define INTERNAL_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Internal)
 
 -- forwarding pointers
 forwards :: (Monad m, G.Vector v k) => v k -> Stream m k
-forwards v = Stream.generateM (unsafeShiftR (G.length v + 7) 3) $ \i -> G.basicUnsafeIndexM v (unsafeShiftL i 3)
+forwards v = Stream.generateM (unsafeShiftR (G.length v + (window-1)) logWindow) $ \i -> G.basicUnsafeIndexM v (unsafeShiftL i logWindow)
 
 unforwarded :: Monad m => Stream m (k, a) -> Stream m (k, Maybe a)
 unforwarded (Stream stepa sa0 sz) = Stream step sa0 sz where

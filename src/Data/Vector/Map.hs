@@ -31,6 +31,7 @@ import qualified Data.Vector.Fusion.Stream.Monadic as Stream
 import Data.Vector.Fusion.Util
 import qualified Data.Vector.Generic as G
 import Data.Vector.Map.Fusion
+import Data.Vector.Map.Tuning
 import GHC.Magic
 import Prelude hiding (null, lookup)
 
@@ -61,16 +62,16 @@ lookup !k m0 = start m0 where
   {-# INLINE start #-}
   start Nil = Nothing
   start (Map ks fwd vs m)
-    | ks G.! j /= k   = continue (dilate l - 15) 14 m
-    | fwd^.contains j = continue (dilate l - 9) 1 m
+    | ks G.! j /= k   = continue (dilate l - (2*window-1)) (2*window-2) m
+    | fwd^.contains j = continue (dilate l - (window+1)) 1 m
     | otherwise       = Just $ vs G.! (j-l)
     where j = search (\i -> ks G.! i >= k) 0 (BV.size fwd - 1)
           l = BV.rank fwd j
 
   continue _  _ Nil = Nothing
   continue lo w (Map ks fwd vs m)
-    | ks G.! j /= k   = continue (dilate l - 15) 14 m -- have to scan a while window
-    | fwd^.contains j = continue (dilate l - 9) 1 m -- only two elements to search, we had an exact hit!
+    | ks G.! j /= k   = continue (dilate l - (2*window-1)) (2*window-2) m -- have to scan a while window
+    | fwd^.contains j = continue (dilate l - (window+1)) 1 m -- only two elements to search, we had an exact hit!
     | otherwise       = Just $ vs G.! (j-l)
     where j = search (\i -> ks G.! i >= k) (max 0 lo) (min (lo+w) (BV.size fwd - 1))
           l = BV.rank fwd j
@@ -89,12 +90,9 @@ inserts :: (Ord k, Arrayed k, Arrayed v) => Stream Id (k, v) -> Int -> Map k v -
 inserts xs n Nil = unstreams (unforwarded xs) n Nil
 inserts xs n om@(Map ks fwds vs nm)
   | mergeThreshold n m = inserts (mergeStreams xs (actual ks fwds vs)) (n + m) nm
-  | otherwise          = unstreams (mergeForwards xs ks) (n + unsafeShiftR (BV.size fwds + 7) 3) om
+  | otherwise          = unstreams (mergeForwards xs ks) (n + unsafeShiftR (BV.size fwds + (window-1)) logWindow) om
   where m = BV.size fwds
 {-# INLINABLE inserts #-}
-
-mergeThreshold :: Int -> Int -> Bool
-mergeThreshold n m = n >= unsafeShiftR m 2
 
 unstreams :: (Arrayed k, Arrayed v) => Stream Id (k, Maybe v) -> Int -> Map k v -> Map k v
 unstreams (Stream stepa sa sz) n m = runST $ do
@@ -112,7 +110,7 @@ fromList xs = foldr (\(k,v) m -> insert k v m) empty xs
 -- * Utilities
 
 dilate :: Int -> Int
-dilate x = unsafeShiftL x 3
+dilate x = unsafeShiftL x logWindow
 {-# INLINE dilate #-}
 
 -- | assuming @l <= h@. Returns @h@ if the predicate is never @True@ over @[l..h)@
