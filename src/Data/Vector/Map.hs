@@ -61,16 +61,16 @@ lookup !k m0 = start m0 where
   {-# INLINE start #-}
   start Nil = Nothing
   start (Map ks fwd vs m)
-    | ks G.! j /= k   = continue (dilate l - 15) 14 m
-    | fwd^.contains j = continue (dilate l - 9) 1 m
+    | ks G.! j /= k   = continue (dilate l - 7) 6 m -- w*2-1, w*2-2
+    | fwd^.contains j = continue (dilate l - 5) 1 m -- w+1,   1
     | otherwise       = Just $ vs G.! (j-l)
     where j = search (\i -> ks G.! i >= k) 0 (BV.size fwd - 1)
           l = BV.rank fwd j
 
   continue _  _ Nil = Nothing
   continue lo w (Map ks fwd vs m)
-    | ks G.! j /= k   = continue (dilate l - 15) 14 m -- have to scan a while window
-    | fwd^.contains j = continue (dilate l - 9) 1 m -- only two elements to search, we had an exact hit!
+    | ks G.! j /= k   = continue (dilate l - 7) 6 m -- have to scan a while window
+    | fwd^.contains j = continue (dilate l - 5) 1 m -- only two elements to search, we had an exact hit!
     | otherwise       = Just $ vs G.! (j-l)
     where j = search (\i -> ks G.! i >= k) (max 0 lo) (min (lo+w) (BV.size fwd - 1))
           l = BV.rank fwd j
@@ -89,7 +89,7 @@ inserts :: (Ord k, Arrayed k, Arrayed v) => Stream Id (k, v) -> Int -> Map k v -
 inserts xs n Nil = unstreams (unforwarded xs) n Nil
 inserts xs n om@(Map ks fwds vs nm)
   | mergeThreshold n m = inserts (mergeStreams xs (actual ks fwds vs)) (n + m) nm
-  | otherwise          = unstreams (mergeForwards xs ks) (n + unsafeShiftR (BV.size fwds + 7) 3) om
+  | otherwise          = unstreams (mergeForwards xs ks) (n + unsafeShiftR (BV.size fwds + 3) 2) om -- 3 = w-1
   where m = BV.size fwds
 {-# INLINABLE inserts #-}
 
@@ -112,7 +112,7 @@ fromList xs = foldr (\(k,v) m -> insert k v m) empty xs
 -- * Utilities
 
 dilate :: Int -> Int
-dilate x = unsafeShiftL x 3
+dilate x = unsafeShiftL x 2
 {-# INLINE dilate #-}
 
 -- | assuming @l <= h@. Returns @h@ if the predicate is never @True@ over @[l..h)@
