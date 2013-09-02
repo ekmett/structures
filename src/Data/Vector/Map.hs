@@ -61,16 +61,16 @@ lookup !k m0 = start m0 where
   {-# INLINE start #-}
   start Nil = Nothing
   start (Map ks fwd vs m)
-    | ks G.! j /= k   = continue (dilate l - 7) 7 m
-    | fwd^.contains j = continue (dilate l - 1) 1 m
+    | ks G.! j /= k   = continue (dilate l - 16) 16 m
+    | fwd^.contains j = continue (dilate l - 9) 1 m
     | otherwise       = Just $ vs G.! (j-l)
     where j = search (\i -> ks G.! i >= k) 0 (BV.size fwd - 1)
           l = BV.rank fwd j
 
   continue _  _ Nil = Nothing
   continue lo w (Map ks fwd vs m)
-    | ks G.! j /= k   = continue (dilate l - 7) 7 m -- have to scan a while window
-    | fwd^.contains j = continue (dilate l - 1) 1 m -- only two elements to search, we had an exact hit!
+    | ks G.! j /= k   = continue (dilate l - 16) 16 m -- have to scan a while window
+    | fwd^.contains j = continue (dilate l - 9) 1 m -- only two elements to search, we had an exact hit!
     | otherwise       = Just $ vs G.! (j-l)
     where j = search (\i -> ks G.! i >= k) (max 0 lo) (min (lo+w) (BV.size fwd - 1))
           l = BV.rank fwd j

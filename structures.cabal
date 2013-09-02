@@ -155,8 +155,6 @@ test-suite doctests
   if impl(ghc<7.6.1)
     ghc-options: -Werror
 
-
-
 benchmark inserts
   type:           exitcode-stdio-1.0
   main-is:        inserts.hs
