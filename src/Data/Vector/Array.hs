@@ -9,6 +9,7 @@
 module Data.Vector.Array
   ( Arrayed(..)
   , Array
+  , MArray
   -- * Internals
   , V_Complex(V_Complex)
   , MV_Complex(MV_Complex)
@@ -32,6 +33,7 @@ import Text.Read
 -- maximizing the level of unboxing provided, but not guaranteeing to unbox it all.
 
 type Array a = Arr a a
+type MArray s a = Mutable (Arr a) s a
 
 class (G.Vector (Arr a) a, Monoid (Arr a a)) => Arrayed a where
   type Arr a :: * -> *
