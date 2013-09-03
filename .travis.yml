@@ -1,7 +1,5 @@
 language: haskell
 before_install:
-  - sudo apt-get update -qq
-  - sudo apt-get install -qq haskell-platform-doc
   # Uncomment whenever hackage is down.
   # - mkdir -p ~/.cabal && cp travis/config ~/.cabal/config && cabal update
   - cabal update
@@ -16,6 +14,10 @@ install:
 
 script:
   - $script
+
+# disable travis for now, atomic-primops doesn't work on GHC 7.4
+branches:
+  except: /.*/
 
 notifications:
   irc:
