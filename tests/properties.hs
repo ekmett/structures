@@ -38,7 +38,7 @@ prop_insertLookup k = V.lookup k (V.insert k () V.empty) /= Nothing
 --prop_fromList xs = V.fromList xs == foldr (\(k,v) -> V.insert k v) V.empty xs
 
 prop_lookupMany :: [(Int,Int)] -> Property
-prop_lookupMany xs = (List.length xs > 0 && List.length xs < 50) ==> prop
+prop_lookupMany xs = List.length xs > 0 ==> prop
   where
     prop = all (\(x,_) -> isJust $ V.lookup x ls) xs'
 
