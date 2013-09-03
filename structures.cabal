@@ -24,6 +24,8 @@ extra-source-files:
 description:
   This package is a playground for working with several types of advanced data structures including
   wavelet trees and cache oblivious lookahead arrays.
+  .
+  WARNING: Your program MUST be built with `ghc -threaded` if you depend on this library. The library depends on threaded Haskell RTS, which is only conditionally linked. If you don't do this you will see an error at link time about cas being missing.
 
 source-repository head
   type: git
@@ -56,6 +58,7 @@ flag llvm
 
 library
   build-depends:
+    atomic-primops    >= 0.4   && < 0.5,
     base              >= 4     && < 5,
     contravariant     >= 0.4.2 && < 1,
     deepseq           >= 1.1   && < 1.4,
@@ -71,13 +74,14 @@ library
   hs-source-dirs: src
 
   exposed-modules:
+    Control.Concurrent.Deque
     Data.Vector.Array
     Data.Vector.Bit
     Data.Vector.Map
     Data.Vector.Map.Fusion
     Data.Vector.Map.Tuning
 
-  ghc-options: -Wall -O2 -fspec-constr
+  ghc-options: -Wall -O2 -fspec-constr -threaded
 
   if flag(llvm)
     ghc-options: -fllvm
