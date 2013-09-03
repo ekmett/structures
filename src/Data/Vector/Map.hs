@@ -62,7 +62,8 @@ lookup !k m0 = start m0 where
   {-# INLINE start #-}
   start Nil = Nothing
   start (Map ks fwd vs m)
-    | ks G.! j /= k   = continue (dilate l - (2*window-1)) (2*window-2) m
+    | ks G.! j /= k   = -- if fwd^.contains j then continue (dilate l - (window-1)) (window-2) m else
+                        continue (dilate l - (2*window-1)) (2*window-2) m
     | fwd^.contains j = continue (dilate l - (window+1)) 1 m
     | otherwise       = Just $ vs G.! (j-l)
     where j = search (\i -> ks G.! i >= k) 0 (BV.size fwd - 1)
@@ -70,7 +71,8 @@ lookup !k m0 = start m0 where
 
   continue _  _ Nil = Nothing
   continue lo w (Map ks fwd vs m)
-    | ks G.! j /= k   = continue (dilate l - (2*window-1)) (2*window-2) m -- have to scan a while window
+    | ks G.! j /= k   = -- if fwd^.contains j then continue (dilate l - (window-1)) (window-2) m else
+                        continue (dilate l - (2*window-1)) (2*window-2) m
     | fwd^.contains j = continue (dilate l - (window+1)) 1 m -- only two elements to search, we had an exact hit!
     | otherwise       = Just $ vs G.! (j-l)
     where j = search (\i -> ks G.! i >= k) (max 0 lo) (min (lo+w) (BV.size fwd - 1))
