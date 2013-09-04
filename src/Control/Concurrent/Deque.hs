@@ -2,29 +2,32 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE MagicHash #-}
+-- |
 -- | Chase-Lev work-stealing Deques
 --
 -- This implementation derives directly from the pseudocode in the <http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.170.1097&rep=rep1&type=pdf 2005 SPAA paper>.
---
--- TODO: local topBound optimization.
--- TODO: Do the more optimized version of growCirc
 module Control.Concurrent.Deque
   ( Deque
+  -- * Initialization
   , empty
+  , fromList
+  , fromListN
+  -- * Size
   , null
+  , size
+  -- * Local Operations
   , push
   , pop
+  -- * Work-Stealing
   , steal
   ) where
 
 import Control.Exception (evaluate)
 import Data.Atomics (storeLoadBarrier, writeBarrier, loadLoadBarrier)
 import Data.Atomics.Counter.Reference
-       ( AtomicCounter, newCounter, readCounter, writeCounter
-       , casCounter, readCounterForCAS, peekCTicket
-       )
 import Data.IORef
 import Data.Vector.Array
+import qualified Data.Vector.Generic as V
 import qualified Data.Vector.Generic.Mutable as MV
 import GHC.Prim (RealWorld)
 import Prelude hiding (null)
@@ -36,6 +39,7 @@ data Deque a = Deque
   , _array  :: {-# UNPACK #-} !(IORef (MArray RealWorld a))
   }
 
+-- | Create a new 'empty' 'Deque'.
 empty :: Arrayed a => IO (Deque a)
 empty = do
   v <- MV.new 32
@@ -44,36 +48,39 @@ empty = do
   ref <- newIORef v
   return (Deque bot top ref)
 
+fromList :: forall a. Arrayed a => [a] -> IO (Deque a)
+fromList as = do
+  v <- V.unsafeThaw (V.fromList as :: Array a)
+  bot <- newCounter (MV.length v - 1)
+  top <- newCounter 0
+  ref <- newIORef v
+  return (Deque bot top ref)
+
+fromListN :: forall a. Arrayed a => Int -> [a] -> IO (Deque a)
+fromListN n as = do
+  v <- V.unsafeThaw (V.fromListN n as :: Array a)
+  bot <- newCounter (MV.length v - 1)
+  top <- newCounter 0
+  ref <- newIORef v
+  return (Deque bot top ref)
+
+-- | Return 'True' if the 'Deque' is definitely empty.
 null :: Deque a -> IO Bool
 null (Deque bot top _) = do
   b <- readCounter bot
   t <- readCounter top
-  let size = b - t
-  return (size <= 0)
+  let sz = b - t
+  return (sz <= 0)
 
--- * Circular array routines:
-
--- TODO: make a "grow" that uses memcpy.
-growCirc :: Arrayed a => Int -> Int -> MArray RealWorld a -> IO (MArray RealWorld a)
-growCirc strt end oldarr = do
-  let len   = MV.length oldarr
-      -- elems = end - strt
-  -- putStrLn$ "Grow to size "++show (len+len)++", copying over "++show elems
-  newarr <- MV.unsafeNew (len + len)
-  for_ strt end $ \ind -> do
-    x <- getCirc oldarr ind
-    _ <- evaluate x
-    putCirc newarr ind x
-  return newarr
-{-# INLINE growCirc #-}
-
-getCirc :: Arrayed a => MArray RealWorld a -> Int -> IO a
-getCirc arr ind = MV.unsafeRead arr (ind `mod` MV.length arr)
-{-# INLINE getCirc #-}
-
-putCirc :: Arrayed a => MArray RealWorld a -> Int -> a -> IO ()
-putCirc arr ind x = MV.unsafeWrite arr (ind `mod` MV.length arr) x
-{-# INLINE putCirc #-}
+-- | Compute a lower and upper bound on the number of elements left in the 'Deque'.
+size :: Deque a -> IO (Int,Int)
+size (Deque bot top _) = do
+  b1 <- readCounter bot
+  t  <- readCounter top
+  b2 <- readCounter bot
+  let size1 = b1 - t
+      size2 = b2 - t
+  return (min size1 size2, max size1 size2)
 
 -- * Queue Operations
 
@@ -85,9 +92,9 @@ push obj (Deque bottom top array) = do
   t   <- readCounter top
   arr <- readIORef array
   let len = MV.length arr
-      size = b - t
+      sz = b - t
 
-  arr' <- if size < len - 1 then return arr else do
+  arr' <- if sz < len - 1 then return arr else do
     arr' <- growCirc t b arr -- Double in size, don't change b/t.
     -- Only a single thread will do this!:
     writeIORef array arr'
@@ -117,13 +124,14 @@ steal (Deque bottom top array) = do
   b   <- readCounter bottom
   arr <- readIORef array
   let t = peekCTicket tt
-      size = b - t
-  if size <= 0 then return Nothing else do
+      sz = b - t
+  if sz <= 0 then return Nothing else do
     a <- getCirc arr t
     (b',_) <- casCounter top tt (t+1)
     return $! if b' then Just a
                     else Nothing -- Someone beat us, abort
 
+-- | Locally pop the deque.
 pop :: Arrayed a => Deque a -> IO (Maybe a)
 pop (Deque bottom top array) = do
   b0  <- readCounter bottom
@@ -136,13 +144,13 @@ pop (Deque bottom top array) = do
   storeLoadBarrier
   tt   <- readCounterForCAS top
   let t = peekCTicket tt
-      size = b - t
-  if size < 0 then do
+      sz = b - t
+  if sz < 0 then do
     writeCounter bottom t
     return Nothing
    else do
     obj <- getCirc arr b
-    if size > 0 then do
+    if sz > 0 then do
       return (Just obj)
      else do
       (b',_) <- casCounter top tt (t+1)
@@ -150,7 +158,7 @@ pop (Deque bottom top array) = do
       return $! if b' then Just obj
                       else Nothing
 
-------------------------------------------------------------
+-- * Utilities
 
 -- My own forM for numeric ranges (not requiring deforestation optimizations).
 -- Inclusive start, exclusive end.
@@ -161,3 +169,26 @@ for_ start end fn = loop start
    loop !i | i == end  = return ()
            | otherwise = do fn i; loop (i+1)
 {-# INLINE for_ #-}
+
+-- * Circular array routines:
+
+-- TODO: make a "grow" that uses memcpy.
+growCirc :: Arrayed a => Int -> Int -> MArray RealWorld a -> IO (MArray RealWorld a)
+growCirc s e old = do
+  let len = MV.length old
+  new <- MV.unsafeNew (len + len)
+  for_ s e $ \i -> do
+    x <- getCirc old i
+    _ <- evaluate x
+    putCirc new i x
+  return new
+{-# INLINE growCirc #-}
+
+getCirc :: Arrayed a => MArray RealWorld a -> Int -> IO a
+getCirc arr ind = MV.unsafeRead arr (ind `mod` MV.length arr)
+{-# INLINE getCirc #-}
+
+putCirc :: Arrayed a => MArray RealWorld a -> Int -> a -> IO ()
+putCirc arr ind x = MV.unsafeWrite arr (ind `mod` MV.length arr) x
+{-# INLINE putCirc #-}
+
