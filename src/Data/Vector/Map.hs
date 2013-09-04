@@ -9,6 +9,33 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE PatternGuards #-}
+-----------------------------------------------------------------------------
+-- |
+-- Copyright   :  (C) 2013 Edward Kmett
+-- License     :  BSD-style (see the file LICENSE)
+-- Maintainer  :  Edward Kmett <ekmett@gmail.com>
+-- Stability   :  experimental
+-- Portability :  non-portable
+--
+-- This module provides a functional variant on the Cache Oblivious Lookahead Array (COLA)
+-- by Bender et al. in <http://supertech.csail.mit.edu/papers/sbtree.pdf "Cache-Oblivious Streaming B-Trees">. 
+--
+-- When used ephemerally, this 'Map' has asymptotic performance equal to that of a B-Tree
+-- tuned to the parameters of your caches. However, no such parameter tuning is required.
+--
+-- Currently this 'Map' is implemented in an insert-only fashion. Deletions are left to future work
+-- or to another derived structure in case they prove expensive.
+--
+-- Moreover, unlike the COLA from the paper, this version merely provides amortized complexity bounds
+-- as this permits us to provide a fully functional API. However, even those asymptotics are
+-- only guaranteed if you do not modify the \"old\" versions of the 'Map'. If you do, then while correctness
+-- is preserved, the asymptotic analysis is inaccurate.
+--
+-- However, reading from \"old\" versions of the 'Map' will not affect the asymptotic analysis.
+--
+-- Compared to @Data.Map@, this data structure currently consumes both more memory and more time,
+-- but it enables us to utilize contiguous storage.
+-----------------------------------------------------------------------------
 module Data.Vector.Map
   ( Map(..)
   , empty
