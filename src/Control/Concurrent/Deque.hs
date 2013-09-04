@@ -1,11 +1,21 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+-----------------------------------------------------------------------------
 -- |
--- | Chase-Lev work-stealing Deques
+-- Copyright   :  (C) 2012-13 Edward Kmett, Ryan Newton
+-- License     :  BSD-style (see the file LICENSE)
+-- Maintainer  :  Edward Kmett <ekmett@gmail.com>
+-- Stability   :  experimental
+-- Portability :  non-portable
 --
--- This implementation derives directly from the pseudocode in the <http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.170.1097&rep=rep1&type=pdf 2005 SPAA paper>.
+-- Chase-Lev work-stealing deques
+--
+-- This implementation derives directly from the pseudocode in the 
+-- <http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.170.1097&rep=rep1&type=pdf 2005 SPAA paper>.
+--
+-----------------------------------------------------------------------------
 module Control.Concurrent.Deque
   ( Deque
   -- * Initialization
