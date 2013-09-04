@@ -41,9 +41,14 @@ import Prelude hiding (null)
 
 #define BOUNDS_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Bounds)
 
+-- | A simple newtype around a 'Bool'
+--
+-- The principal use of this is that a 'U.Vector' 'Bit' is densely
+-- packed into individual bits rather than stored as one entry per 'Word8'.
 newtype Bit = Bit { getBit :: Bool }
   deriving (Show,Read,Eq,Ord,Enum,Bounded,Data,Typeable)
 
+-- | 'Bit' and 'Bool' are isomorphic.
 _Bit :: Iso' Bit Bool
 _Bit = iso getBit Bit
 {-# INLINE _Bit #-}
@@ -107,14 +112,16 @@ instance G.Vector U.Vector Bit where
 
 #define BOUNDS_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Bounds)
 
+-- | A BitVector support for naïve /O(1)/ 'rank'.
 data BitVector = BitVector {-# UNPACK #-} !Int !(Array Bit) !(U.Vector Int)
   deriving (Eq,Ord,Show,Read)
 
+-- | /O(n) embedding/ A 'BitVector' is isomorphic to a vector of bits. It just carries extra information.
 _BitVector :: Iso' BitVector (Array Bit)
 _BitVector = iso (\(BitVector _ v _) -> v) $ \v@(V_Bit n ws) -> BitVector n v $ G.scanl (\a b -> a + popCount b) 0 ws
 {-# INLINE _BitVector #-}
 
--- | @'rank' i v@ counts the number of 'True' bits up through and including the position @i@
+-- | /O(1)/. @'rank' i v@ counts the number of 'True' bits up through and including the position @i@
 rank :: BitVector -> Int -> Int
 rank (BitVector n (V_Bit _ ws) ps) i
   = BOUNDS_CHECK(checkIndex) "rank" i n
@@ -122,14 +129,17 @@ rank (BitVector n (V_Bit _ ws) ps) i
   where w = wd i
 {-# INLINE rank #-}
 
+-- | The 'empty' 'BitVector'
 empty :: BitVector
 empty = _BitVector # G.empty
 {-# INLINE empty #-}
 
+-- | /O(1)/. Is the 'BitVector' 'empty'?
 null :: BitVector -> Bool
 null (BitVector n _ _) = n == 0
 {-# INLINE null #-}
 
+-- | /O(1)/. Return the size of the 'BitVector'.
 size :: BitVector -> Int
 size (BitVector n _ _) = n
 {-# INLINE size #-}
@@ -139,6 +149,7 @@ type instance Index BitVector = Int
 instance (Functor f, Contravariant f) => Contains f BitVector where
   contains i f (BitVector n as _) = coerce $ L.indexed f i (0 <= i && i < n && getBit (as U.! i))
 
+-- | Construct a 'BitVector' with a single element.
 singleton :: Bool -> BitVector
 singleton True = true1
 singleton False = false1
