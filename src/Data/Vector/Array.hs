@@ -6,7 +6,19 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+-----------------------------------------------------------------------------
+-- |
+-- Copyright   :  (C) 2013 Edward Kmett
+-- License     :  BSD-style (see the file LICENSE)
+-- Maintainer  :  Edward Kmett <ekmett@gmail.com>
+-- Stability   :  experimental
+-- Portability :  non-portable
+--
+-- This module provides a choice of a "best" vector type for a given type
+-- that is as unboxed as possible.
+-----------------------------------------------------------------------------
 module Data.Vector.Array
+
   ( Arrayed(..)
   , Array
   , MArray
