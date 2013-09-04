@@ -12,7 +12,7 @@
 --
 -- Chase-Lev work-stealing deques
 --
--- This implementation derives directly from the pseudocode in the 
+-- This implementation derives directly from the pseudocode in the
 -- <http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.170.1097&rep=rep1&type=pdf 2005 SPAA paper>.
 --
 -----------------------------------------------------------------------------
@@ -34,6 +34,7 @@ module Control.Concurrent.Deque
   ) where
 
 import Control.Exception (evaluate)
+import Control.Lens
 import Data.Atomics (storeLoadBarrier, writeBarrier, loadLoadBarrier)
 import Data.Atomics.Counter.Reference
 import Data.Foldable
@@ -82,6 +83,8 @@ empty = do
 -- (1,1)
 -- >>> pop q
 -- Just "hello"
+-- >>> pop q
+-- Nothing
 singleton :: forall a. Arrayed a => a -> IO (Deque a)
 singleton a = do
   v <- MV.new 32
@@ -142,19 +145,47 @@ null (Deque bot top _) = do
   return (sz <= 0)
 
 -- | Compute a lower and upper bound on the number of elements left in the 'Deque'.
+--
+-- Under contention from stealing threads or when used by a stealing thread these
+-- numbers may well differ.
 size :: Deque a -> IO (Int, Int)
 size (Deque bot top _) = do
   b1 <- readCounter bot
   t  <- readCounter top
   b2 <- readCounter bot
-  let size1 = b1 - t -- always the lower bound on x86, due to lack of load reordering
-      size2 = b2 - t -- always the upper bound on x86, due to lack of load reordering
-  return (min size1 size2, max size1 size2)
+  let sz1 = b1 - t -- always the lower bound on x86, due to lack of load reordering
+      sz2 = b2 - t -- always the upper bound on x86, due to lack of load reordering
+  return (min sz1 sz2, max sz1 sz2)
 
 -- * Queue Operations
 
--- | For a work-stealing queue `push` is the ``local'' push.  Thus
---   only a single thread should perform this operation.
+-- | For a work-stealing queue `push` is the ``local'' push.
+--
+-- Thus only a single thread should perform this operation.
+--
+-- 'push' and 'pop' together act like a stack.
+--
+-- >>> q :: Deque String <- empty
+-- >>> push "hello" q
+-- >>> push "world" q
+-- >>> pop q
+-- Just "world"
+-- >>> pop q
+-- Just "hello"
+-- >>> pop q
+-- Nothing
+--
+-- 'push' and 'steal' together act like a queue.
+--
+-- >>> p :: Deque String <- empty
+-- >>> push "hello" p
+-- >>> push "world" p
+-- >>> steal p
+-- Just "hello"
+-- >>> steal p
+-- Just "world"
+-- >>> steal p
+-- Nothing
 push :: Arrayed a => a -> Deque a -> IO ()
 push obj (Deque bottom top array) = do
   b   <- readCounter bottom
@@ -184,7 +215,7 @@ push obj (Deque bottom top array) = do
 
 -- TODO: consolidate the writes behind one barrier!
 pushMany :: (Foldable f, Arrayed a) => f a -> Deque a -> IO ()
-pushMany objs d = forM_ objs $ \a -> push a d
+pushMany objs d = forMOf_ (backwards folded) objs $ \a -> push a d
 {-# INLINE pushMany #-}
 
 -- | This is the work-stealing dequeue operation.
