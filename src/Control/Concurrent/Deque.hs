@@ -10,6 +10,7 @@ module Control.Concurrent.Deque
   ( Deque
   -- * Initialization
   , empty
+  , singleton
   , fromList
   , fromListN
   -- * Size
@@ -34,7 +35,7 @@ import GHC.Prim (RealWorld)
 import Prelude hiding (null)
 
 -- $setup
--- >>> :set -XScopedTypeVariables
+-- >>> :set -XScopedTypeVariables -XNoOverloadedStrings
 
 -- | A Chase-Lev circular work-stealing deque
 --
@@ -52,10 +53,30 @@ data Deque a = Deque
 -- >>> q :: Deque Int <- empty
 -- >>> null q
 -- True
+-- >>> pop q
+-- Nothing
+-- >>> steal q
+-- Nothing
 empty :: Arrayed a => IO (Deque a)
 empty = do
   v <- MV.new 32
   bot <- newCounter 0
+  top <- newCounter 0
+  ref <- newIORef v
+  return (Deque bot top ref)
+
+-- | Create a new 'Deque' with one element in it.
+--
+-- >>> q <- singleton "hello"
+-- >>> size q
+-- (1,1)
+-- >>> pop q
+-- Just "hello"
+singleton :: forall a. Arrayed a => a -> IO (Deque a)
+singleton a = do
+  v <- MV.new 32
+  MV.unsafeWrite v 0 a
+  bot <- newCounter 1
   top <- newCounter 0
   ref <- newIORef v
   return (Deque bot top ref)
@@ -73,6 +94,10 @@ empty = do
 -- Just 4
 -- >>> pop q
 -- Nothing
+--
+-- >>> p <- fromList [1,2,3,4 :: Int]
+-- >>> steal p
+-- Just 4
 fromList :: forall a. Arrayed a => [a] -> IO (Deque a)
 fromList as = do
   v <- V.unsafeThaw (V.reverse (V.fromList as :: Array a)) -- TODO: pad this out to an initial 32 entries?
@@ -91,6 +116,14 @@ fromListN n as = do
   return (Deque bot top ref)
 
 -- | @null@ returns 'True' if the 'Deque' is definitely empty.
+--
+-- >>> q <- singleton (1 :: Int)
+-- >>> null q
+-- False
+-- >>> pop q
+-- Just 1
+-- >>> null q
+-- True
 null :: Deque a -> IO Bool
 null (Deque bot top _) = do
   b <- readCounter bot
