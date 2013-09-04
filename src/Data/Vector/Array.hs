@@ -60,6 +60,18 @@ instance Arrayed Word64
 instance Arrayed Integer where
   type Arr Integer = B.Vector
 
+instance Arrayed [a] where
+  type Arr [a] = B.Vector
+
+instance Arrayed (Maybe a) where
+  type Arr (Maybe a) = B.Vector
+
+instance Arrayed (Either a b) where
+  type Arr (Either a b) = B.Vector
+
+instance Arrayed (IO a) where
+  type Arr (IO a) = B.Vector
+
 -- * Pairs are boxed or unboxed based on their components
 
 #ifndef HLINT
