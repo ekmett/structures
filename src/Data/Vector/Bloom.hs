@@ -4,6 +4,7 @@ module Data.Vector.Bloom
   ( Bloom(Bloom)
   , width
   , bloom
+  , elem
   -- * Freezing/Thawing
   , freeze, thaw
   , unsafeFreeze, unsafeThaw
@@ -14,26 +15,33 @@ import Control.Monad.Primitive
 import Control.Monad.ST
 import Data.Bits
 import Data.Data
-import Data.Foldable
+import qualified Data.Foldable as F
 import Data.Hashable
 import Data.Semigroup
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector.Unboxed.Mutable as UM
 import qualified Data.Vector.Bloom.Mutable as MB
 import Data.Vector.Bloom.Mutable (MBloom(MBloom))
+import Data.Vector.Bloom.Util
 import Data.Word
+import Prelude hiding (elem)
 
 data Bloom = Bloom
   { _hashes  :: {-# UNPACK #-} !Int -- number of hash functions to use
   , _bits    :: !(U.Vector Word64)  -- data
   } deriving (Eq,Ord,Show,Read,Typeable,Data)
 
-bloom :: (Foldable f, Hashable a) => Int -> Int -> f a -> Bloom
+bloom :: (F.Foldable f, Hashable a) => Int -> Int -> f a -> Bloom
 bloom k m fa = runST $ do
   v <- UM.replicate (unsafeShiftR (m + 63) 6) 0
   let mb = MB.MBloom k v
-  forM_ fa $ \a -> MB.insert a mb
+  F.forM_ fa $ \a -> MB.insert a mb
   freeze mb
+
+elem :: Hashable a => a -> Bloom -> Bool
+elem a (Bloom h v) = all hit (hashes h a) where
+  !m = U.length v
+  hit i = testBit (U.unsafeIndex v (mod (unsafeShiftR i 6) m)) (i .&. 63)
 
 width :: Bloom -> Int
 width (Bloom _ w) = unsafeShiftL (U.length w) 6
