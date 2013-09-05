@@ -6,9 +6,7 @@ module Data.Vector.Bloom.Util
   ) where
 
 import Data.Bits
-import Data.Data
 import Data.Hashable
-import Data.Word
 
 pepper :: Int
 pepper = 0x53dffa872f4d7341
