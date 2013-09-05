@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 module Data.Vector.Bloom.Util
-  ( hashes
+  ( rehash
   , optimalHashes
   , optimalWidth
   ) where
@@ -14,8 +14,8 @@ pepper = 0x53dffa872f4d7341
 -- | Compute several hashes using a variant of
 -- <http://www.eecs.harvard.edu/~kirsch/pubs/bbbf/esa06.pdf Kirsch and Mitzenmacher>'s
 -- double hashing.
-hashes :: Hashable a => Int -> a -> [Int]
-hashes k a = go k where
+rehash :: Hashable a => Int -> a -> [Int]
+rehash k a = go k where
   go 0 = []
   go i = h : go (i - 1) where !h = h1 + shiftR h2 i
   !h1 = hash a
