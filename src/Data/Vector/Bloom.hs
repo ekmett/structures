@@ -87,10 +87,10 @@ intersection (Bloom k1 m v1) (Bloom k2 n v2) = Bloom (min k1 k2) (max m n) v3 wh
 -- This may return false positives, but never a false negative.
 elem :: Hashable a => a -> Bloom -> Bool
 elem a (Bloom k m v)
-  | m > 511, h:hs <- rehash k a, p <- unsafeShiftL h 14 .&. unsafeShiftR m 6 =
-    all (\i -> testBit (U.unsafeIndex v (p + (unsafeShiftR i 6 .&. 511))) (i .&. 63)) hs
+  | m > 32767, h:hs <- rehash k a, p <- unsafeShiftL h 15 =
+    all (\i -> let im = (p+(i.&.32767)).&.m in testBit (U.unsafeIndex v (unsafeShiftR im 6)) (i .&. 63)) hs
   | otherwise =
-    all (\i -> testBit (U.unsafeIndex v (unsafeShiftR i 6 .&. m)) (i .&. 63)) (rehash k a)
+    all (\i -> let im = i.&.m in testBit (U.unsafeIndex v (unsafeShiftR im 6)) (im .&. 63)) (rehash k a)
 {-# INLINE elem #-}
 
 -- | Insert an element into a 'Bloom' filter.

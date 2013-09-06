@@ -31,12 +31,14 @@ width (MBloom _ m _) = m + 1
 
 insert :: (PrimMonad m, Hashable a) => a -> MBloom (PrimState m) -> m ()
 insert a (MBloom k m bs)
-  | m > 511, h:hs <- rehash k a, p <- unsafeShiftL h 16 .&. unsafeShiftR m 6 = forM_ hs $ \i -> do
-    let !iw = p + (unsafeShiftR i 6 .&. 511)
+  | m > 32767, h:hs <- rehash k a, p <- unsafeShiftL h 15 = forM_ hs $ \i -> do
+    let !im = (p + (i.&.32767)) .&. m
+    let !iw = unsafeShiftR im 6
     w <- UM.unsafeRead bs iw
-    UM.unsafeWrite bs iw $ setBit w (i .&. 63)
+    UM.unsafeWrite bs iw $ setBit w (im .&. 63)
   | otherwise = forM_ (rehash k a) $ \ i -> do
-    let !iw = mod (unsafeShiftR i 6) m
+    let !im = i .&. m
+    let !iw = unsafeShiftR im 6
     w <- UM.unsafeRead bs iw
-    UM.unsafeWrite bs iw $ setBit w (i .&. 63)
+    UM.unsafeWrite bs iw $ setBit w (im .&. 63)
 {-# INLINE insert #-}
