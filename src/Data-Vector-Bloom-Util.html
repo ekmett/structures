@@ -9,7 +9,7 @@
 <body>
 <pre><a name="line-1"></a><span class='hs-comment'>{-# LANGUAGE BangPatterns #-}</span>
 <a name="line-2"></a><span class='hs-keyword'>module</span> <span class='hs-conid'>Data</span><span class='hs-varop'>.</span><span class='hs-conid'>Vector</span><span class='hs-varop'>.</span><span class='hs-conid'>Bloom</span><span class='hs-varop'>.</span><span class='hs-conid'>Util</span>
-<a name="line-3"></a>  <span class='hs-layout'>(</span> <span class='hs-varid'>hashes</span>
+<a name="line-3"></a>  <span class='hs-layout'>(</span> <span class='hs-varid'>rehash</span>
 <a name="line-4"></a>  <span class='hs-layout'>,</span> <span class='hs-varid'>optimalHashes</span>
 <a name="line-5"></a>  <span class='hs-layout'>,</span> <span class='hs-varid'>optimalWidth</span>
 <a name="line-6"></a>  <span class='hs-layout'>)</span> <span class='hs-keyword'>where</span>
@@ -20,11 +20,11 @@
 <a name="line-11"></a><a name="pepper"></a><span class='hs-definition'>pepper</span> <span class='hs-keyglyph'>::</span> <span class='hs-conid'>Int</span>
 <a name="line-12"></a><span class='hs-definition'>pepper</span> <span class='hs-keyglyph'>=</span> <span class='hs-num'>0x53dffa872f4d7341</span>
 <a name="line-13"></a>
-<a name="line-14"></a><a name="hashes"></a><span class='hs-comment'>-- | Compute several hashes using a variant of</span>
+<a name="line-14"></a><a name="rehash"></a><span class='hs-comment'>-- | Compute several hashes using a variant of</span>
 <a name="line-15"></a><span class='hs-comment'>-- &lt;<a href="http://www.eecs.harvard.edu/~kirsch/pubs/bbbf/esa06.pdf">http://www.eecs.harvard.edu/~kirsch/pubs/bbbf/esa06.pdf</a> Kirsch and Mitzenmacher&gt;'s</span>
 <a name="line-16"></a><span class='hs-comment'>-- double hashing.</span>
-<a name="line-17"></a><span class='hs-definition'>hashes</span> <span class='hs-keyglyph'>::</span> <span class='hs-conid'>Hashable</span> <span class='hs-varid'>a</span> <span class='hs-keyglyph'>=&gt;</span> <span class='hs-conid'>Int</span> <span class='hs-keyglyph'>-&gt;</span> <span class='hs-varid'>a</span> <span class='hs-keyglyph'>-&gt;</span> <span class='hs-keyglyph'>[</span><span class='hs-conid'>Int</span><span class='hs-keyglyph'>]</span>
-<a name="line-18"></a><span class='hs-definition'>hashes</span> <span class='hs-varid'>k</span> <span class='hs-varid'>a</span> <span class='hs-keyglyph'>=</span> <span class='hs-varid'>go</span> <span class='hs-varid'>k</span> <span class='hs-keyword'>where</span>
+<a name="line-17"></a><span class='hs-definition'>rehash</span> <span class='hs-keyglyph'>::</span> <span class='hs-conid'>Hashable</span> <span class='hs-varid'>a</span> <span class='hs-keyglyph'>=&gt;</span> <span class='hs-conid'>Int</span> <span class='hs-keyglyph'>-&gt;</span> <span class='hs-varid'>a</span> <span class='hs-keyglyph'>-&gt;</span> <span class='hs-keyglyph'>[</span><span class='hs-conid'>Int</span><span class='hs-keyglyph'>]</span>
+<a name="line-18"></a><span class='hs-definition'>rehash</span> <span class='hs-varid'>k</span> <span class='hs-varid'>a</span> <span class='hs-keyglyph'>=</span> <span class='hs-varid'>go</span> <span class='hs-varid'>k</span> <span class='hs-keyword'>where</span>
 <a name="line-19"></a>  <span class='hs-varid'>go</span> <span class='hs-num'>0</span> <span class='hs-keyglyph'>=</span> <span class='hs-conid'>[]</span>
 <a name="line-20"></a>  <span class='hs-varid'>go</span> <span class='hs-varid'>i</span> <span class='hs-keyglyph'>=</span> <span class='hs-varid'>h</span> <span class='hs-conop'>:</span> <span class='hs-varid'>go</span> <span class='hs-layout'>(</span><span class='hs-varid'>i</span> <span class='hs-comment'>-</span> <span class='hs-num'>1</span><span class='hs-layout'>)</span> <span class='hs-keyword'>where</span> <span class='hs-varop'>!</span><span class='hs-varid'>h</span> <span class='hs-keyglyph'>=</span> <span class='hs-varid'>h1</span> <span class='hs-varop'>+</span> <span class='hs-varid'>shiftR</span> <span class='hs-varid'>h2</span> <span class='hs-varid'>i</span>
 <a name="line-21"></a>  <span class='hs-varop'>!</span><span class='hs-varid'>h1</span> <span class='hs-keyglyph'>=</span> <span class='hs-varid'>hash</span> <span class='hs-varid'>a</span>
