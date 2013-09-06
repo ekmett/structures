@@ -20,9 +20,9 @@ sumAll :: (U.Unbox a, U.Unbox b, Num b) => (a -> b) -> U.Vector a -> b
 sumAll f = U.sum . U.map f
 
 main :: IO ()
-main = do ns <- randVecStd 17 :: IO (U.Vector Int)
-          print (vinsert ns)
-          print (V.shape (vinsert ns))
+main = do ns <- randVecStd 1000 :: IO (U.Vector Int)
+          -- print (vinsert ns)
+          -- print (V.shape (vinsert ns))
           putStrLn $ if sumAll (vget (vinsert ns)) ns ==
                         sumAll (minsert ns M.!) ns
                      then "We are sane"
