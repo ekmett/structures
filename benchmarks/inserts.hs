@@ -22,6 +22,6 @@ main = defaultMain
   , bench "Data.Map insert 10k" $ nf buildM 10000
   , bench "COLA insert 100k"     $ nf buildV 100000
   , bench "Data.Map insert 100k" $ nf buildM 100000
-  , bench "COLA insert 1m"     $ nf buildV 1000000
-  , bench "Data.Map insert 1m" $ nf buildM 1000000
+--  , bench "COLA insert 1m"     $ nf buildV 1000000
+--  , bench "Data.Map insert 1m" $ nf buildM 1000000
   ]
