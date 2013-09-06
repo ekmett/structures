@@ -17,24 +17,32 @@
 -- Stability   :  experimental
 -- Portability :  non-portable
 --
--- This module provides a functional variant on the Cache Oblivious Lookahead Array (COLA)
--- by Bender et al. in <http://supertech.csail.mit.edu/papers/sbtree.pdf "Cache-Oblivious Streaming B-Trees">. 
+-- This module provides a 'Vector'-based 'Map' that is loosely based on the
+-- Cache Oblivious Lookahead Array (COLA) by Bender et al. from
+-- <http://supertech.csail.mit.edu/papers/sbtree.pdf "Cache-Oblivious Streaming B-Trees">.
 --
--- When used ephemerally, this 'Map' has asymptotic performance equal to that of a B-Tree
--- tuned to the parameters of your caches. However, no such parameter tuning is required.
+-- When used ephemerally, this 'Map' has asymptotic performance equal to that
+-- of a B-Tree tuned to the parameters of your caches. However, no such
+-- parameter tuning is required.
 --
 -- Currently this 'Map' is implemented in an insert-only fashion. Deletions are left to future work
 -- or to another derived structure in case they prove expensive.
 --
--- Moreover, unlike the COLA from the paper, this version merely provides amortized complexity bounds
--- as this permits us to provide a fully functional API. However, even those asymptotics are
--- only guaranteed if you do not modify the \"old\" versions of the 'Map'. If you do, then while correctness
--- is preserved, the asymptotic analysis is inaccurate.
+-- Fractional cascading has been replaced with the use of a hierarchical bloom filter per level containing
+-- the elements for that level, with the false positive rate tuned to balance the lookup cost against
+-- the costs of the cache misses for a false positive at that depth. This avoids the need to collect
+-- forwarding pointers from the next level, reducing pressure on the cache dramatically, while providing
+-- the same asymptotic complexity.
 --
--- However, reading from \"old\" versions of the 'Map' will not affect the asymptotic analysis.
+-- Unlike the COLA, this version merely provides amortized complexity bounds as this permits us to
+-- provide a fully functional API. However, even those asymptotics are only guaranteed if you do not
+-- modify the \"old\" versions of the 'Map'. If you do, then while correctness is preserved, the
+-- asymptotic analysis becomes inaccurate.
 --
--- Compared to @Data.Map@, this data structure currently consumes both more memory and more time,
--- but it enables us to utilize contiguous storage.
+-- Reading from \"old\" versions of the 'Map' will not affect the asymptotic analysis, however.
+--
+-- Compared to the venerable @Data.Map@, this data structure currently consumes more memory, but it
+-- provides a more limited palette of operations in less time and enables us to utilize contiguous storage.
 -----------------------------------------------------------------------------
 module Data.Vector.Map
   ( Map(..)
@@ -126,7 +134,7 @@ insert k v m = cons1 k v m
 {-# INLINE insert #-}
 
 fromList :: (Hashable k, Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
-fromList xs = foldr (\(k,v) m -> insert k v m) empty xs
+fromList = foldr (\(k,v) m -> insert k v m) empty
 {-# INLINE fromList #-}
 
 -- | assuming @l <= h@. Returns @h@ if the predicate is never @True@ over @[l..h)@
