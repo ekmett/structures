@@ -16,21 +16,8 @@ module Data.Vector.Map.Fusion
   , insert
   ) where
 
-import Control.Lens
-import Control.Monad.Primitive
-import Data.Bits
-import Data.Vector.Bit as Bit
 import Data.Vector.Fusion.Stream.Monadic as Stream
 import Data.Vector.Fusion.Stream.Size as Stream
-import Data.Vector.Fusion.Util
-import Data.Vector.Internal.Check as Ck
-import qualified Data.Vector.Generic as G
-import qualified Data.Vector.Generic.Mutable as GM
-import qualified Data.Vector.Unboxed as U
-import Data.Vector.Map.Tuning
-
-#define BOUNDS_CHECK(f)   (Ck.f __FILE__ __LINE__ Ck.Bounds)
-#define INTERNAL_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Internal)
 
 -- | The state for 'Stream' fusion that is used by 'mergeStreamsWith'.
 --
