@@ -47,7 +47,6 @@ module Data.Vector.Map
   , shape
   ) where
 
-import Control.Lens as L
 import Control.Monad.ST
 import Data.Bits
 import Data.Hashable
@@ -55,15 +54,11 @@ import Data.Vector.Array
 import qualified Data.Vector.Bloom as B
 import qualified Data.Vector.Bloom.Mutable as MB
 import Data.Vector.Bloom.Util
-import Data.Vector.Bit (BitVector, _BitVector)
-import qualified Data.Vector.Bit as BV
 import Data.Vector.Fusion.Stream.Monadic (Stream(..))
 import qualified Data.Vector.Fusion.Stream.Monadic as Stream
 import Data.Vector.Fusion.Util
 import qualified Data.Vector.Generic as G
-import Data.Vector.Map.Fusion
-import Data.Vector.Map.Tuning
-import GHC.Magic
+import qualified Data.Vector.Map.Fusion as Fusion
 import Prelude hiding (null, lookup)
 
 #define BOUNDS_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Bounds)
@@ -99,8 +94,12 @@ empty = Nil
 {-# INLINE empty #-}
 
 singleton :: (Arrayed k, Arrayed v) => k -> v -> Map k v
-singleton k v = Map 1 Nothing (G.singleton k) (G.singleton v) Nil
+singleton k v = cons1 k v Nil
 {-# INLINE singleton #-}
+
+cons1 :: (Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
+cons1 k v = Map 1 Nothing (G.singleton k) (G.singleton v)
+{-# INLINE cons1 #-}
 
 lookup :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> Map k v -> Maybe v
 lookup !k m0 = go m0 where
@@ -113,22 +112,18 @@ lookup !k m0 = go m0 where
     | otherwise = go m
 {-# INLINE lookup #-}
 
+zips :: (G.Vector v a, G.Vector u b) => v a -> u b -> Stream Id (a, b)
+zips va ub = Stream.zip (G.stream va) (G.stream ub)
+{-# INLINE zips #-}
+
 insert :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
-insert !k v Nil = singleton k v
-insert !k v m   = inserts (Stream.singleton (k, v)) 1 m
+insert !k v (Map n1 _ ks1 vs1 m1@(Map n2 _ ks2 vs2 m2))
+  | n1 >= unsafeShiftR n2 1 = case G.unstream $ Fusion.insert k v (zips ks1 vs1) `Fusion.merge` zips ks2 vs2 of
+    V_Pair n ks3 vs3 -> Map n (blooming ks3) ks3 vs3 m2
+  | n2 == 1 = case G.unstream (Fusion.insert k v (zips ks1 vs1)) of
+    V_Pair n ks3 vs3 -> Map n (blooming ks3) ks3 vs3 m1
+insert k v m = cons1 k v m
 {-# INLINE insert #-}
-
-inserts :: (Hashable k, Ord k, Arrayed k, Arrayed v) => Stream Id (k, v) -> Int -> Map k v -> Map k v
-inserts xs n Nil = unstreams xs Nil
-inserts xs n om@(Map m _ ks vs nm)
-  | mergeThreshold n m = inserts (mergeStreams xs $ G.stream $ V_Pair m ks vs) (n + m) nm
-  | otherwise          = unstreams xs om
-{-# INLINABLE inserts #-}
-
-unstreams :: (Hashable k, Arrayed k, Arrayed v) => Stream Id (k, v) -> Map k v -> Map k v
-unstreams s m = case G.unstream s of
-  V_Pair n ks vs -> Map n (blooming ks) ks vs m
-{-# INLINE unstreams #-}
 
 fromList :: (Hashable k, Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromList xs = foldr (\(k,v) m -> insert k v m) empty xs
