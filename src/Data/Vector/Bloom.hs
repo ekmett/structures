@@ -33,7 +33,6 @@ import qualified Data.Foldable as F
 import Data.Hashable
 import Data.Semigroup
 import qualified Data.Vector.Unboxed as U
-import qualified Data.Vector.Unboxed.Mutable as UM
 import qualified Data.Vector.Bloom.Mutable as MB
 import Data.Vector.Bloom.Mutable (MBloom(MBloom))
 import Data.Vector.Bloom.Util
@@ -52,15 +51,8 @@ data Bloom
 
 -- | @'bloom' k m@ builds an @m@-bit wide 'Bloom' filter that uses @k@ hashes.
 bloom :: (F.Foldable f, Hashable a) => Int -> Int -> f a -> Bloom
-bloom k m0 fa = runST $ do
-  let m1 = m0 .|. unsafeShiftR m0 1
-  let m2 = m1 .|. unsafeShiftR m1 2
-  let m3 = m2 .|. unsafeShiftR m2 4
-  let m4 = m3 .|. unsafeShiftR m3 8
-  let m5 = m4 .|. unsafeShiftR m4 16
-  let m6 = m5 .|. shiftR m5 32
-  v <- UM.replicate (unsafeShiftR m6 6 + 1) 0
-  let mb = MB.MBloom k m6 v
+bloom k m fa = runST $ do
+  mb <- MB.mbloom k m
   F.forM_ fa $ \a -> MB.insert a mb
   freeze mb
 {-# INLINE bloom #-}
