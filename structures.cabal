@@ -83,7 +83,6 @@ library
     Data.Vector.Bloom.Util
     Data.Vector.Map
     Data.Vector.Map.Fusion
-    Data.Vector.Map.Tuning
 
   ghc-options: -Wall -O2 -fspec-constr -threaded
 
