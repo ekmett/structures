@@ -1,6 +1,8 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
+-- | Hierarchical Bloom filters
 module Data.Vector.Bloom
   ( Bloom(Bloom)
   -- * Information
@@ -40,48 +42,55 @@ import Prelude hiding (elem)
 
 -- TODO: switch to a hash that we can persist to disk cross-platform!
 
-data Bloom = Bloom
-  { hashes  :: {-# UNPACK #-} !Int -- number of hash functions to use
-  , _bits    :: !(U.Vector Word64)  -- data
-  } deriving (Eq,Ord,Show,Read,Typeable,Data)
+data Bloom
+  = Bloom
+    { hashes :: {-# UNPACK #-} !Int -- number of hash functions to use
+    , _mask  :: {-# UNPACK #-} !Int -- 2^p-1
+    , _bits  :: !(U.Vector Word64)  -- when length > 512, then it is an integral multiple of 512, and data is binned into pages
+    }
+  deriving (Eq,Ord,Show,Read,Typeable,Data)
 
 -- | @'bloom' k m@ builds an @m@-bit wide 'Bloom' filter that uses @k@ hashes.
 bloom :: (F.Foldable f, Hashable a) => Int -> Int -> f a -> Bloom
-bloom k m fa = runST $ do
-  v <- UM.replicate (unsafeShiftR (m + 63) 6) 0
-  let mb = MB.MBloom k v
+bloom k m0 fa = runST $ do
+  let m1 = m0 .|. unsafeShiftR m0 1
+  let m2 = m1 .|. unsafeShiftR m1 2
+  let m3 = m2 .|. unsafeShiftR m2 4
+  let m4 = m3 .|. unsafeShiftR m3 8
+  let m5 = m4 .|. unsafeShiftR m4 16
+  let m6 = m5 .|. shiftR m5 32
+  v <- UM.replicate (unsafeShiftR m6 6 + 1) 0
+  let mb = MB.MBloom k m6 v
   F.forM_ fa $ \a -> MB.insert a mb
   freeze mb
 {-# INLINE bloom #-}
 
 -- | Number of bits set
 entries :: Bloom -> Int
-entries (Bloom _ v) = U.foldl' (\r a -> r + popCount a) 0 v
+entries (Bloom _ _ v) = U.foldl' (\r a -> r + popCount a) 0 v
 {-# INLINE entries #-}
 
 -- | Compute the union of two 'Bloom' filters.
 union :: Bloom -> Bloom -> Bloom
-union (Bloom k1 v1) (Bloom k2 v2) = Bloom (min k1 k2) v3 where
-  m1 = U.length v1
-  m2 = U.length v2
-  v3 = U.generate (lcm m1 m2) $ \i -> U.unsafeIndex v1 (mod i m1) .|. U.unsafeIndex v2 (mod i m2)
+union (Bloom k1 m v1) (Bloom k2 n v2) = Bloom (min k1 k2) (max m n) v3 where
+  v3 = U.generate (U.length v1 `max` U.length v2) $ \i -> U.unsafeIndex v1 (i .&. m) .|. U.unsafeIndex v2 (i .&. n)
 {-# INLINE union #-}
 
 -- | Compute the intersection of two 'Bloom' filters.
 intersection :: Bloom -> Bloom -> Bloom
-intersection (Bloom k1 v1) (Bloom k2 v2) = Bloom (min k1 k2) v3 where
-  m1 = U.length v1
-  m2 = U.length v2
-  v3 = U.generate (lcm m1 m2) $ \i -> U.unsafeIndex v1 (mod i m1) .&. U.unsafeIndex v2 (mod i m2)
+intersection (Bloom k1 m v1) (Bloom k2 n v2) = Bloom (min k1 k2) (max m n) v3 where
+  v3 = U.generate (U.length v1 `max` U.length v2) $ \i -> U.unsafeIndex v1 (i .&. m) .&. U.unsafeIndex v2 (i .&. n)
 {-# INLINE intersection #-}
 
 -- | Check if an element is a member of a 'Bloom' filter.
 --
 -- This may return false positives, but never a false negative.
 elem :: Hashable a => a -> Bloom -> Bool
-elem a (Bloom h v) = all hit (rehash h a) where
-  !m = U.length v
-  hit i = testBit (U.unsafeIndex v (mod (unsafeShiftR i 6) m)) (i .&. 63)
+elem a (Bloom k m v)
+  | m > 511, h:hs <- rehash k a, p <- unsafeShiftL h 14 .&. unsafeShiftR m 6 =
+    all (\i -> testBit (U.unsafeIndex v (p + (unsafeShiftR i 6 .&. 511))) (i .&. 63)) hs
+  | otherwise =
+    all (\i -> testBit (U.unsafeIndex v (unsafeShiftR i 6 .&. m)) (i .&. 63)) (rehash k a)
 {-# INLINE elem #-}
 
 -- | Insert an element into a 'Bloom' filter.
@@ -91,12 +100,12 @@ insert a b = modify (MB.insert a) b
 
 -- | Given an action on a mutable 'Bloom' filter, modify this one.
 modify :: (forall s. MBloom s -> ST s ()) -> Bloom -> Bloom
-modify f (Bloom a v) = Bloom a (U.modify (f . MBloom a) v)
+modify f (Bloom a m v) = Bloom a m (U.modify (f . MBloom a m) v)
 {-# INLINE modify #-}
 
 -- | The number of bits in our 'Bloom' filter. Always an integral multiple of 64.
 width :: Bloom -> Int
-width (Bloom _ w) = unsafeShiftL (U.length w) 6
+width (Bloom _ m _) = m + 1
 {-# INLINE width #-}
 
 instance Semigroup Bloom where
@@ -105,20 +114,20 @@ instance Semigroup Bloom where
 
 -- | /O(m)/
 freeze :: PrimMonad m => MBloom (PrimState m) -> m Bloom
-freeze (MBloom k bs) = Bloom k `liftM` U.freeze bs
+freeze (MBloom k m bs) = Bloom k m `liftM` U.freeze bs
 {-# INLINE freeze #-}
 
 -- | /O(m)/
 thaw :: PrimMonad m => Bloom -> m (MBloom (PrimState m))
-thaw (Bloom k bs) = MBloom k `liftM` U.thaw bs
+thaw (Bloom k m bs) = MBloom k m `liftM` U.thaw bs
 {-# INLINE thaw #-}
 
 -- | /O(1)/
 unsafeFreeze :: PrimMonad m => MBloom (PrimState m) -> m Bloom
-unsafeFreeze (MBloom k bs) = Bloom k `liftM` U.unsafeFreeze bs
+unsafeFreeze (MBloom k m bs) = Bloom k m `liftM` U.unsafeFreeze bs
 {-# INLINE unsafeFreeze #-}
 
 -- | /O(1)/
 unsafeThaw :: PrimMonad m => Bloom -> m (MBloom (PrimState m))
-unsafeThaw (Bloom k bs) = MBloom k `liftM` U.unsafeThaw bs
+unsafeThaw (Bloom k m bs) = MBloom k m `liftM` U.unsafeThaw bs
 {-# INLINE unsafeThaw #-}
