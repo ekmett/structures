@@ -125,11 +125,9 @@ zips va ub = Stream.zip (G.stream va) (G.stream ub)
 {-# INLINE zips #-}
 
 insert :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
-insert !k v (Map n1 _ ks1 vs1 m1@(Map n2 _ ks2 vs2 m2))
+insert !k v (Map n1 _ ks1 vs1 (Map n2 _ ks2 vs2 m2))
   | n1 >= unsafeShiftR n2 1 = case G.unstream $ Fusion.insert k v (zips ks1 vs1) `Fusion.merge` zips ks2 vs2 of
     V_Pair n ks3 vs3 -> Map n (blooming ks3) ks3 vs3 m2
-  | n2 == 1 = case G.unstream (Fusion.insert k v (zips ks1 vs1)) of
-    V_Pair n ks3 vs3 -> Map n (blooming ks3) ks3 vs3 m1
 insert k v m = cons1 k v m
 {-# INLINE insert #-}
 
