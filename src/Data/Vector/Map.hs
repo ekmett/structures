@@ -70,7 +70,6 @@ import Control.Applicative hiding (empty)
 import Control.Monad.ST
 import Data.Bits
 import Data.Hashable
-import Data.List as List (foldl', unfoldr)
 import Data.Vector.Array
 import qualified Data.Vector.Bloom as B
 import qualified Data.Vector.Bloom.Mutable as MB
@@ -146,18 +145,12 @@ insert2 k v ks1 vs1 ks2 vs2 m = case G.unstream $ Fusion.insert k v (zips ks1 vs
   V_Pair n ks3 vs3 -> Map n (blooming ks3) ks3 vs3 m
 {-# INLINE insert2 #-}
 
-run :: (Ord k, Arrayed k, Arrayed v) => [k] -> [v] -> [(k,v)] -> k -> Int -> ((Array k, Array v), [(k,v)])
-run ks vs ((k,v):xs) i n | i <= k = run (k:ks) (v:vs) xs k $! n + 1
-run ks vs xs _ n = ((G.unstreamR (Stream.fromListN n ks), G.unstreamR (Stream.fromListN n vs)), xs)
-
-runs :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> [(Array k, Array v)]
-runs = List.unfoldr $ \l -> case l of
-  [] -> Nothing;
-  ((k,v):xs) -> Just (run [k] [v] xs k 1)
-{-# INLINE runs #-}
-
+-- breaks the input up into ascending runs, then insert them
 fromList :: (Hashable k, Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
-fromList xs = List.foldl' (\m (k,v) -> insert k v m) empty xs
+fromList []         = Nil
+fromList ((k0,v0):xs0) = go [k0] [v0] xs0 k0 1 where
+  go ks vs ((k,v):xs) i n | i <= k = go (k:ks) (v:vs) xs k $! n + 1
+  go ks vs xs _ n = cons n Nothing (G.unstreamR (Stream.fromListN n ks)) (G.unstreamR (Stream.fromListN n vs)) (fromList xs)
 {-# INLINE fromList #-}
 
 split :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> Map k v -> (Map k v, Map k v)
@@ -170,7 +163,7 @@ split k m0 = case split' k m0 of
 split' :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> Map k v -> (Map k v, Map k v)
 split' k m0 = go m0 where
   go Nil = (Nil, Nil)
-  go (Map n mbf ks vs m) = case go m of
+  go (Map n _ ks vs m) = case go m of
     (xs,ys) -> case G.splitAt j ks of
       (kxs,kys) -> case G.splitAt j vs of
         (vxs,vys) -> ( Map j     (blooming kxs) kxs vxs xs
@@ -205,14 +198,14 @@ search p = go where
 cons :: (Hashable k, Ord k, Arrayed k, Arrayed v) => Int -> Maybe B.Bloom -> Array k -> Array v -> Map k v -> Map k v
 cons 0 _   _  _  m = m
 cons 1 _   ks vs m = insert (G.unsafeHead ks) (G.unsafeHead vs) m
-cons n _   ks vs (Map n2 _ ks2 vs2 m)
+cons n _   ks vs (Map n2 _ ks' vs' m)
   | threshold n n2
   , nc <- min (n-1) n2
   , (ks1, ks2) <- G.splitAt nc ks
   , (vs1, vs2) <- G.splitAt nc vs
   , k <- G.unsafeHead ks2, ks3 <- G.unsafeTail ks2
   , v <- G.unsafeHead vs2, vs3 <- G.unsafeTail vs2
-  = cons (n-nc-1) (blooming ks3) ks3 vs3 $ insert2 k v ks1 vs1 ks2 vs2 m
+  = cons (n-nc-1) (blooming ks3) ks3 vs3 $ insert2 k v ks1 vs1 ks' vs' m
 cons n mbf ks vs m = Map n (mbf <|> blooming ks) ks vs m
 
 -- | If using have trashed our size invariants we can use this to restore them
