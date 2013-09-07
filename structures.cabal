@@ -24,8 +24,6 @@ extra-source-files:
 description:
   This package is a playground for working with several types of advanced data structures including
   wavelet trees and cache oblivious lookahead arrays.
-  .
-  WARNING: Your program MUST be built with `ghc -threaded` if you depend on this library. The library depends on threaded Haskell RTS, which is only conditionally linked. If you don't do this you will see an error at link time about cas being missing.
 
 source-repository head
   type: git
