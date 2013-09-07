@@ -55,6 +55,7 @@ module Data.Vector.Map
   , singleton
   , lookup
   , insert
+  , fromDistinctAscList
   , fromList
   , shape
   , split
@@ -146,13 +147,19 @@ insert2 k v ks1 vs1 ks2 vs2 m = case G.unstream $ Fusion.insert k v (zips ks1 vs
   V_Pair n ks3 vs3 -> Map n (blooming ks3) ks3 vs3 m
 {-# INLINE insert2 #-}
 
+fromDistinctAscList :: (Hashable k, Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
+fromDistinctAscList kvs = case G.fromList kvs of
+  V_Pair n ks vs -> Map n (blooming ks) ks vs Nil
+{-# INLINE fromDistinctAscList #-}
+
 fromList :: (Hashable k, Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromList xs = List.foldl' (\m (k,v) -> insert k v m) empty xs
 {-
-fromList []         = Nil
-fromList ((k0,v0):xs0) = go [k0] [v0] xs0 k0 1 where
-  go ks vs ((k,v):xs) i n | i <= k = go (k:ks) (v:vs) xs k $! n + 1
-  go ks vs xs _ n = cons n Nothing (G.unstreamR (Stream.fromListN n ks)) (G.unstreamR (Stream.fromListN n vs)) (fromList xs)
+fromList xs00 = go1 empty xs00 where
+  go1 !m []            = m
+  go1 !m ((k0,v0):xs0) = go2 m [k0] [v0] xs0 k0 1
+  go2 !m ks vs ((k,v):xs) i n | i <= k = go2 m (k:ks) (v:vs) xs k $! n + 1
+  go2 !m ks vs xs _ n = go1 (cons n Nothing (G.unstreamR (Stream.fromListN n ks)) (G.unstreamR (Stream.fromListN n vs)) m) xs
 -}
 {-# INLINE fromList #-}
 
