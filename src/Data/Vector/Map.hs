@@ -1,10 +1,12 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE BangPatterns #-}
@@ -51,11 +53,13 @@ module Data.Vector.Map
   , singleton
   , lookup
   , insert
+  , insert4
   , fromList
   , shape
   ) where
 
 import Control.Monad.ST
+import Control.Parallel
 import Data.Bits
 import Data.Hashable
 import Data.Vector.Array
@@ -130,6 +134,19 @@ insert !k v (Map n1 _ ks1 vs1 (Map n2 _ ks2 vs2 m2))
     V_Pair n ks3 vs3 -> Map n (blooming ks3) ks3 vs3 m2
 insert k v m = cons1 k v m
 {-# INLINE insert #-}
+
+insert4 :: forall k v. (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
+insert4 !k v (Map n1 _ ks1 vs1 (Map _ _ ks2 vs2 (Map _ _ ks3 vs3 (Map n4 _ ks4 vs4 m))))
+  | n1 >= unsafeShiftR n4 1 = vb `par` va `pseq` case va of
+    V_Pair na ksa vsa -> Map na (blooming ksa) ksa vsa $ case vb of
+      V_Pair nb ksb vsb -> Map nb (blooming ksb) ksb vsb m
+  where va :: V_Pair (k,v)
+        va = G.unstream $ Fusion.insert k v (zips ks1 vs1) `Fusion.merge` zips ks2 vs2
+        vb :: V_Pair (k,v)
+        vb = G.unstream $ zips ks3 vs3 `Fusion.merge` zips ks4 vs4
+insert4 k v m = cons1 k v m
+{-# INLINE insert4 #-}
+
 
 fromList :: (Hashable k, Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromList = foldr (\(k,v) m -> insert k v m) empty
