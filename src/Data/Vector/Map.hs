@@ -135,14 +135,17 @@ fromList :: (Hashable k, Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromList = foldr (\(k,v) m -> insert k v m) empty
 {-# INLINE fromList #-}
 
--- | assuming @l <= h@. Returns @h@ if the predicate is never @True@ over @[l..h)@
+-- | Offset binary search
+--
+-- Assuming @l <= h@. Returns @h@ if the predicate is never @True@ over @[l..h)@
 search :: (Int -> Bool) -> Int -> Int -> Int
 search p = go where
   go l h
     | l == h    = l
     | p m       = go l m
     | otherwise = go (m+1) h
-    where m = l + div (h-l) 2
+    where hml = h - l
+          m = l + unsafeShiftR hml 1 + unsafeShiftR hml 6
 {-# INLINE search #-}
 
 -- * Debugging
