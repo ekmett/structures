@@ -61,7 +61,6 @@ module Data.Vector.Map
   , union
   -- * Non-normalized operations
   , split'
-  , union'
   -- * Rebuild
   , rebuild
   ) where
@@ -99,32 +98,38 @@ blooming ks
 -- | This Map is implemented as an insert-only Cache Oblivious Lookahead Array (COLA) with amortized complexity bounds
 -- that are equal to those of a B-Tree when it is used ephemerally, using Bloom filters to replace the fractional
 -- cascade.
-data Map k v = Map !Int (Maybe B.Bloom) !(Array k) !(Array v) !(Map k v) | Nil
+data Map k v
+  = Nil
+  | One !k v (Map k v)
+  | Map !Int (Maybe B.Bloom) !(Array k) !(Array v) !(Map k v)
 
-deriving instance (Show (Arr v v), Show (Arr k k)) => Show (Map k v)
-deriving instance (Read (Arr v v), Read (Arr k k)) => Read (Map k v)
+deriving instance (Show (Arr v v), Show (Arr k k), Show k, Show v) => Show (Map k v)
+deriving instance (Read (Arr v v), Read (Arr k k), Read k, Read v) => Read (Map k v)
 
+-- | /O(1)/. Identify if a 'Map' is the 'empty' 'Map'.
 null :: Map k v -> Bool
 null Nil = True
 null _   = False
 {-# INLINE null #-}
 
+-- | /O(1)/ The 'empty' 'Map'.
 empty :: Map k v
 empty = Nil
 {-# INLINE empty #-}
 
-singleton :: (Arrayed k, Arrayed v) => k -> v -> Map k v
-singleton k v = cons1 k v Nil
+-- | /O(1)/ Construct a 'Map' from a single key/value pair.
+singleton :: k -> v -> Map k v
+singleton k v = One k v Nil
 {-# INLINE singleton #-}
 
-cons1 :: (Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
-cons1 k v = Map 1 Nothing (G.singleton k) (G.singleton v)
-{-# INLINE cons1 #-}
-
+-- | /O(log n)/ persistently amortized, /O(n)/ worst case. Lookup an element.
 lookup :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> Map k v -> Maybe v
 lookup !k m0 = go m0 where
   {-# INLINE go #-}
   go Nil = Nothing
+  go (One i a m)
+    | k == i    = Just a
+    | otherwise = go m
   go (Map n mbf ks vs m)
     | maybe True (B.elem k) mbf
     , j <- search (\i -> ks G.! i >= k) 0 (n-1)
@@ -134,10 +139,39 @@ lookup !k m0 = go m0 where
 
 threshold :: Int -> Int -> Bool
 threshold n1 n2 = n1 > unsafeShiftR n2 1
+{-# INLINE threshold #-}
 
+-- two :: (Arrayed k, Arrayed v) => k -> v -> k -> v -> Map k v -> Map k v
+-- three :: (Arrayed k, Arrayed v) => k -> v -> k -> v -> k -> v -> Map k v -> Map k v
+
+-- | /O(log n)/ ephemerally amortized, /O(n)/ worst case. Insert an element.
 insert :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
-insert !k v (Map n1 _ ks1 vs1 (Map n2 _ ks2 vs2 m)) | threshold n1 n2 = insert2 k v ks1 vs1 ks2 vs2 m
-insert k v m = cons1 k v m
+insert !k v (Map n1 _ ks1 vs1 (Map n2 _ ks2 vs2 m))
+  | threshold n1 n2 = insert2 k v ks1 vs1 ks2 vs2 m
+insert !ka va (One kb vb (One kc vc m))
+  = case compare ka kb of
+    LT -> case compare ka kc of
+      LT -> case compare kb kc of
+        LT -> three ka va kb vb kc vc m -- a,b,c
+        EQ -> two ka va kb vb m         -- a,b  | b == c
+        GT -> three ka va kc vc kb vb m -- a,c,b
+      EQ -> two ka va kb vb m           -- a,b  | a == c
+      GT -> three kc vc ka va kb vb m   -- c,a,b
+    EQ -> case compare ka kc of
+      LT -> two ka va kc vc m           -- a,c  | a == b
+      EQ -> One ka va m                 -- a    | a == b == c
+      GT -> two kc vc ka va m           -- c,a  | a == b
+    GT -> case compare kb kc of
+      LT -> case compare ka kc of
+        LT -> three kb vb ka va kc vc m -- b,a,c
+        EQ -> two kb vb ka va m         -- b,a  | a == c
+        GT -> three kb vb kc vc ka va m -- b,c,a
+      EQ -> two kb vb ka va m           -- b,a  | a == b
+      GT -> three kc vc kb vb ka va m   -- c,b,a
+  where
+    two k1 v1 k2 v2 m0         = Map 2 Nothing (G.fromListN 2 [k1,k2])    (G.fromListN 2 [v1,v2])    m0
+    three k1 v1 k2 v2 k3 v3 m0 = Map 3 Nothing (G.fromListN 3 [k1,k2,k3]) (G.fromListN 3 [v1,v2,v3]) m0
+insert k v m = One k v m
 {-# INLINE insert #-}
 
 insert2 :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Array k -> Array v -> Array k -> Array v -> Map k v -> Map k v
@@ -150,19 +184,36 @@ fromList :: (Hashable k, Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromList []         = Nil
 fromList ((k0,v0):xs0) = go [k0] [v0] xs0 k0 1 where
   go ks vs ((k,v):xs) i n | i <= k = go (k:ks) (v:vs) xs k $! n + 1
+  go ks vs xs _ 1 = insert (head ks) (head vs) (fromList xs)
   go ks vs xs _ n = cons n Nothing (G.unstreamR (Stream.fromListN n ks)) (G.unstreamR (Stream.fromListN n vs)) (fromList xs)
 {-# INLINE fromList #-}
 
 split :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> Map k v -> (Map k v, Map k v)
-split k m0 = case split' k m0 of
-  (xs,ys) -> (rebuild xs, rebuild ys)
+-- split k m0 = case split' k m0 of (xs,ys) -> (rebuild xs, rebuild ys)
+split k m0 = go m0 where
+  go Nil = (Nil, Nil)
+  go (One j a m) = case go m of
+    (xs,ys)
+       | j < k     -> (insert j a xs, ys)
+       | otherwise -> (xs, insert j a ys)
+  go (Map n _ ks vs m) = case go m of
+    (xs,ys) -> case G.splitAt j ks of
+      (kxs,kys) -> case G.splitAt j vs of
+        (vxs,vys) -> ( cons j     (blooming kxs) kxs vxs xs
+                     , cons (n-j) (blooming kys) kys vys ys
+                     )
+      where j = search (\i -> ks G.! i >= k) 0 n
 {-# INLINE split #-}
 
 -- | This trashes size invariants and inherently uses the structure twice, so asymptotic analysis if you
--- continue to edit this structure will be hard, but it can be used for reads efficiently.
+-- continue to edit this structure will be hard, but it can still be used for reads efficiently.
 split' :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> Map k v -> (Map k v, Map k v)
 split' k m0 = go m0 where
   go Nil = (Nil, Nil)
+  go (One j a m) = case go m of
+    (xs,ys)
+       | j < k     -> (One j a xs, ys)
+       | otherwise -> (xs, One j a ys)
   go (Map n _ ks vs m) = case go m of
     (xs,ys) -> case G.splitAt j ks of
       (kxs,kys) -> case G.splitAt j vs of
@@ -173,14 +224,11 @@ split' k m0 = go m0 where
 {-# INLINE split' #-}
 
 union :: (Hashable k, Ord k, Arrayed k, Arrayed v) => Map k v -> Map k v -> Map k v
-union xs ys = rebuild (union' xs ys)
-{-# INLINE union #-}
-
--- | This trashes size invariants.
-union' :: Map k v -> Map k v -> Map k v
-union' ys0 xs = go ys0 where
+union ys0 xs = go ys0 where
   go Nil = xs
-  go (Map n mbf ks vs m) = Map n mbf ks vs (go m)
+  go (One k v m) = insert k v (go m)
+  go (Map n mbf ks vs m) = cons n mbf ks vs (go m)
+{-# INLINE union #-}
 
 -- | Offset binary search
 --
@@ -207,12 +255,14 @@ cons n _   ks vs (Map n2 _ ks' vs' m)
   , v <- G.unsafeHead vs2, vs3 <- G.unsafeTail vs2
   = cons (n-nc-1) (blooming ks3) ks3 vs3 $ insert2 k v ks1 vs1 ks' vs' m
 cons n mbf ks vs m = Map n (mbf <|> blooming ks) ks vs m
+{-# INLINABLE cons #-}
 
 -- | If using have trashed our size invariants we can use this to restore them
 rebuild :: (Hashable k, Ord k, Arrayed k, Arrayed v) => Map k v -> Map k v
 rebuild Nil = Nil
+rebuild (One k v m) = insert k v m
 rebuild (Map n mbf ks vs m) = cons n mbf ks vs (rebuild m)
-{-# INLINE rebuild #-}
+{-# INLINABLE rebuild #-}
 
 zips :: (G.Vector v a, G.Vector u b) => v a -> u b -> Stream Id (a, b)
 zips va ub = Stream.zip (G.stream va) (G.stream ub)
@@ -221,5 +271,6 @@ zips va ub = Stream.zip (G.stream va) (G.stream ub)
 -- * Debugging
 
 shape :: Map k v -> [Int]
-shape Nil = []
+shape Nil             = []
+shape (One _ _ m)     = 1 : shape m
 shape (Map n _ _ _ m) = n : shape m
