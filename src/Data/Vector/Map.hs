@@ -148,8 +148,9 @@ insert2 k v ks1 vs1 ks2 vs2 m = case G.unstream $ Fusion.insert k v (zips ks1 vs
 {-# INLINE insert2 #-}
 
 fromDistinctAscList :: (Hashable k, Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
-fromDistinctAscList kvs = case G.fromList kvs of
-  V_Pair n ks vs -> Map n (blooming ks) ks vs Nil
+fromDistinctAscList kvs = fromList kvs
+-- fromDistinctAscList kvs = case G.fromList kvs of
+--   V_Pair n ks vs -> Map n (blooming ks) ks vs Nil
 {-# INLINE fromDistinctAscList #-}
 
 fromList :: (Hashable k, Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
