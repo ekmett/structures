@@ -43,6 +43,10 @@
 --
 -- Compared to the venerable @Data.Map@, this data structure currently consumes more memory, but it
 -- provides a more limited palette of operations in less time and enables us to utilize contiguous storage.
+--
+-- /NB:/ when used with boxed data this structure may hold onto references to old versions
+-- of things for many updates to come until sufficient operations have happened to merge them out
+-- of the COLA.
 -----------------------------------------------------------------------------
 module Data.Vector.Map
   ( Map(..)
@@ -53,12 +57,20 @@ module Data.Vector.Map
   , insert
   , fromList
   , shape
+  , split
+  , union
+  -- * Non-normalized operations
+  , split'
+  , union'
+  -- * Rebuild
+  , rebuild
   ) where
 
+import Control.Applicative hiding (empty)
 import Control.Monad.ST
 import Data.Bits
 import Data.Hashable
-import Data.List as List (foldl')
+import Data.List as List (foldl', unfoldr)
 import Data.Vector.Array
 import qualified Data.Vector.Bloom as B
 import qualified Data.Vector.Bloom.Mutable as MB
@@ -121,20 +133,61 @@ lookup !k m0 = go m0 where
     | otherwise = go m
 {-# INLINE lookup #-}
 
-zips :: (G.Vector v a, G.Vector u b) => v a -> u b -> Stream Id (a, b)
-zips va ub = Stream.zip (G.stream va) (G.stream ub)
-{-# INLINE zips #-}
+threshold :: Int -> Int -> Bool
+threshold n1 n2 = n1 > unsafeShiftR n2 1
 
 insert :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
-insert !k v (Map n1 _ ks1 vs1 (Map n2 _ ks2 vs2 m2))
-  | n1 >= unsafeShiftR n2 1 = case G.unstream $ Fusion.insert k v (zips ks1 vs1) `Fusion.merge` zips ks2 vs2 of
-    V_Pair n ks3 vs3 -> Map n (blooming ks3) ks3 vs3 m2
+insert !k v (Map n1 _ ks1 vs1 (Map n2 _ ks2 vs2 m)) | threshold n1 n2 = insert2 k v ks1 vs1 ks2 vs2 m
 insert k v m = cons1 k v m
 {-# INLINE insert #-}
+
+insert2 :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Array k -> Array v -> Array k -> Array v -> Map k v -> Map k v
+insert2 k v ks1 vs1 ks2 vs2 m = case G.unstream $ Fusion.insert k v (zips ks1 vs1) `Fusion.merge` zips ks2 vs2 of
+  V_Pair n ks3 vs3 -> Map n (blooming ks3) ks3 vs3 m
+{-# INLINE insert2 #-}
+
+run :: (Ord k, Arrayed k, Arrayed v) => [k] -> [v] -> [(k,v)] -> k -> Int -> ((Array k, Array v), [(k,v)])
+run ks vs ((k,v):xs) i n | i <= k = run (k:ks) (v:vs) xs k $! n + 1
+run ks vs xs _ n = ((G.unstreamR (Stream.fromListN n ks), G.unstreamR (Stream.fromListN n vs)), xs)
+
+runs :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> [(Array k, Array v)]
+runs = List.unfoldr $ \l -> case l of
+  [] -> Nothing;
+  ((k,v):xs) -> Just (run [k] [v] xs k 1)
+{-# INLINE runs #-}
 
 fromList :: (Hashable k, Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromList xs = List.foldl' (\m (k,v) -> insert k v m) empty xs
 {-# INLINE fromList #-}
+
+split :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> Map k v -> (Map k v, Map k v)
+split k m0 = case split' k m0 of
+  (xs,ys) -> (rebuild xs, rebuild ys)
+{-# INLINE split #-}
+
+-- | This trashes size invariants and inherently uses the structure twice, so asymptotic analysis if you
+-- continue to edit this structure will be hard, but it can be used for reads efficiently.
+split' :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> Map k v -> (Map k v, Map k v)
+split' k m0 = go m0 where
+  go Nil = (Nil, Nil)
+  go (Map n mbf ks vs m) = case go m of
+    (xs,ys) -> case G.splitAt j ks of
+      (kxs,kys) -> case G.splitAt j vs of
+        (vxs,vys) -> ( Map j     (blooming kxs) kxs vxs xs
+                     , Map (n-j) (blooming kys) kys vys ys
+                     )
+      where j = search (\i -> ks G.! i >= k) 0 n
+{-# INLINE split' #-}
+
+union :: (Hashable k, Ord k, Arrayed k, Arrayed v) => Map k v -> Map k v -> Map k v
+union xs ys = rebuild (union' xs ys)
+{-# INLINE union #-}
+
+-- | This trashes size invariants.
+union' :: Map k v -> Map k v -> Map k v
+union' ys0 xs = go ys0 where
+  go Nil = xs
+  go (Map n mbf ks vs m) = Map n mbf ks vs (go m)
 
 -- | Offset binary search
 --
@@ -148,6 +201,29 @@ search p = go where
     where hml = h - l
           m = l + unsafeShiftR hml 1 + unsafeShiftR hml 6
 {-# INLINE search #-}
+
+cons :: (Hashable k, Ord k, Arrayed k, Arrayed v) => Int -> Maybe B.Bloom -> Array k -> Array v -> Map k v -> Map k v
+cons 0 _   _  _  m = m
+cons 1 _   ks vs m = insert (G.unsafeHead ks) (G.unsafeHead vs) m
+cons n _   ks vs (Map n2 _ ks2 vs2 m)
+  | threshold n n2
+  , nc <- min (n-1) n2
+  , (ks1, ks2) <- G.splitAt nc ks
+  , (vs1, vs2) <- G.splitAt nc vs
+  , k <- G.unsafeHead ks2, ks3 <- G.unsafeTail ks2
+  , v <- G.unsafeHead vs2, vs3 <- G.unsafeTail vs2
+  = cons (n-nc-1) (blooming ks3) ks3 vs3 $ insert2 k v ks1 vs1 ks2 vs2 m
+cons n mbf ks vs m = Map n (mbf <|> blooming ks) ks vs m
+
+-- | If using have trashed our size invariants we can use this to restore them
+rebuild :: (Hashable k, Ord k, Arrayed k, Arrayed v) => Map k v -> Map k v
+rebuild Nil = Nil
+rebuild (Map n mbf ks vs m) = cons n mbf ks vs (rebuild m)
+{-# INLINE rebuild #-}
+
+zips :: (G.Vector v a, G.Vector u b) => v a -> u b -> Stream Id (a, b)
+zips va ub = Stream.zip (G.stream va) (G.stream ub)
+{-# INLINE zips #-}
 
 -- * Debugging
 
