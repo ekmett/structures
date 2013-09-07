@@ -66,7 +66,6 @@ flag optimized
 
 library
   build-depends:
-    atomic-primops    >= 0.4   && < 0.5,
     base              >= 4     && < 5,
     contravariant     >= 0.4.2 && < 1,
     deepseq           >= 1.1   && < 1.4,
@@ -84,7 +83,6 @@ library
   hs-source-dirs: src
 
   exposed-modules:
-    Control.Concurrent.Deque
     Data.Vector.Array
     Data.Vector.Bit
     Data.Vector.Bloom
