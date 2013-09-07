@@ -58,6 +58,7 @@ module Data.Vector.Map
 import Control.Monad.ST
 import Data.Bits
 import Data.Hashable
+import Data.List as List (foldl')
 import Data.Vector.Array
 import qualified Data.Vector.Bloom as B
 import qualified Data.Vector.Bloom.Mutable as MB
@@ -132,7 +133,7 @@ insert k v m = cons1 k v m
 {-# INLINE insert #-}
 
 fromList :: (Hashable k, Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
-fromList = foldr (\(k,v) m -> insert k v m) empty
+fromList xs = List.foldl' (\m (k,v) -> insert k v m) empty xs
 {-# INLINE fromList #-}
 
 -- | Offset binary search
