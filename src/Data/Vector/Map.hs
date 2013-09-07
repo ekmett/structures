@@ -70,6 +70,7 @@ import Control.Applicative hiding (empty)
 import Control.Monad.ST
 import Data.Bits
 import Data.Hashable
+import qualified Data.List as List
 import Data.Vector.Array
 import qualified Data.Vector.Bloom as B
 import qualified Data.Vector.Bloom.Mutable as MB
@@ -145,12 +146,14 @@ insert2 k v ks1 vs1 ks2 vs2 m = case G.unstream $ Fusion.insert k v (zips ks1 vs
   V_Pair n ks3 vs3 -> Map n (blooming ks3) ks3 vs3 m
 {-# INLINE insert2 #-}
 
--- breaks the input up into ascending runs, then insert them
 fromList :: (Hashable k, Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
+fromList xs = List.foldl' (\m (k,v) -> insert k v m) empty xs
+{-
 fromList []         = Nil
 fromList ((k0,v0):xs0) = go [k0] [v0] xs0 k0 1 where
   go ks vs ((k,v):xs) i n | i <= k = go (k:ks) (v:vs) xs k $! n + 1
   go ks vs xs _ n = cons n Nothing (G.unstreamR (Stream.fromListN n ks)) (G.unstreamR (Stream.fromListN n vs)) (fromList xs)
+-}
 {-# INLINE fromList #-}
 
 split :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> Map k v -> (Map k v, Map k v)
