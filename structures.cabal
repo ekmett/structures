@@ -85,7 +85,7 @@ library
     Data.Vector.Map
     Data.Vector.Map.Fusion
 
-  ghc-options: -Wall -O2 -fspec-constr -threaded
+  ghc-options: -Wall -O2 -threaded
 
   if flag(llvm)
     ghc-options: -fllvm
