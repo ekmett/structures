@@ -51,6 +51,7 @@ module Data.Vector.Map
   , singleton
   , lookup
   , insert
+  , insert3
   , fromList
   , shape
   ) where
@@ -130,6 +131,14 @@ insert !k v (Map n1 _ ks1 vs1 (Map n2 _ ks2 vs2 m2))
     V_Pair n ks3 vs3 -> Map n (blooming ks3) ks3 vs3 m2
 insert k v m = cons1 k v m
 {-# INLINE insert #-}
+
+insert3 :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
+insert3 !k v (Map n1 _ ks1 vs1 (Map _ _ ks2 vs2 (Map n3 _ ks3 vs3 m)))
+  | n1 >= unsafeShiftR n3 1 = case G.unstream $ Fusion.insert k v (zips ks1 vs1)
+                                                    `Fusion.merge` (zips ks2 vs2 `Fusion.merge` zips ks3 vs3) of
+    V_Pair n ks vs -> Map n (blooming ks) ks vs m
+insert3 k v m = cons1 k v m
+{-# INLINE insert3 #-}
 
 fromList :: (Hashable k, Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromList = foldr (\(k,v) m -> insert k v m) empty
