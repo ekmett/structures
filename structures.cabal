@@ -167,7 +167,7 @@ test-suite doctests
 benchmark inserts
   type:           exitcode-stdio-1.0
   main-is:        inserts.hs
-  ghc-options:    -Wall -O2 -threaded
+  ghc-options:    -Wall -O2 -threaded -rtsopts -with-rtsopts=-N
   hs-source-dirs: benchmarks
   build-depends:
     array,
@@ -182,7 +182,7 @@ benchmark inserts
 benchmark maps
   type:           exitcode-stdio-1.0
   main-is:        MapBench.hs
-  ghc-options:    -Wall -O2 -threaded -fllvm
+  ghc-options:    -Wall -O2 -threaded -rtsopts -with-rtsopts=-N -fllvm
   hs-source-dirs: benchmarks
   build-depends:
     array,
