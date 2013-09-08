@@ -90,7 +90,7 @@ baseRate = 0.001
 
 blooming :: (Hashable k, Arrayed k) => Array k -> Maybe B.Bloom
 blooming ks
-  | n < 5000 = Nothing
+  | n < 25000 = Nothing
   | m <- optimalWidth n $ baseRate / log (fromIntegral n)
   , k <- optimalHashes n m = Just $ runST $ do
     mb <- MB.mbloom k m
