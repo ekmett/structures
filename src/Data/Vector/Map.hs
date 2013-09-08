@@ -88,15 +88,19 @@ import Prelude hiding (null, lookup)
 baseRate :: Double
 baseRate = 0.001
 
+
 blooming :: (Hashable k, Arrayed k) => Array k -> Maybe B.Bloom
+blooming _ = Nothing
+{-
 blooming ks
-  | n < 100 = Nothing
+  | n < 125000 = Nothing
   | m <- optimalWidth n $ baseRate / log (fromIntegral n)
   , k <- optimalHashes n m = Just $ runST $ do
     mb <- MB.mbloom k m
     G.forM_ ks $ \a -> MB.insert a mb
     B.freeze mb
   where n = G.length ks
+-}
 
 -- | This Map is implemented as an insert-only Cache Oblivious Lookahead Array (COLA) with amortized complexity bounds
 -- that are equal to those of a B-Tree when it is used ephemerally, using Bloom filters to replace the fractional
