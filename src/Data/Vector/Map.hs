@@ -62,7 +62,6 @@ module Data.Vector.Map
   , union
   -- * Non-normalized operations
   , split'
-  , union'
   -- * Rebuild
   , rebuild
   ) where
@@ -165,8 +164,15 @@ fromList xs00 = go1 empty xs00 where
 {-# INLINE fromList #-}
 
 split :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> Map k v -> (Map k v, Map k v)
-split k m0 = case split' k m0 of
-  (xs,ys) -> (rebuild xs, rebuild ys)
+split k m0 = go m0 where
+  go Nil = (Nil, Nil)
+  go (Map n _ ks vs m) = case go m of
+    (xs,ys) -> case G.splitAt j ks of
+      (kxs,kys) -> case G.splitAt j vs of
+        (vxs,vys) -> ( cons j     (blooming kxs) kxs vxs xs
+                     , cons (n-j) (blooming kys) kys vys ys
+                     )
+      where j = search (\i -> ks G.! i >= k) 0 n
 {-# INLINE split #-}
 
 -- | This trashes size invariants and inherently uses the structure twice, so asymptotic analysis if you
@@ -184,14 +190,10 @@ split' k m0 = go m0 where
 {-# INLINE split' #-}
 
 union :: (Hashable k, Ord k, Arrayed k, Arrayed v) => Map k v -> Map k v -> Map k v
-union xs ys = rebuild (union' xs ys)
-{-# INLINE union #-}
-
--- | This trashes size invariants.
-union' :: Map k v -> Map k v -> Map k v
-union' ys0 xs = go ys0 where
+union ys0 xs = go ys0 where
   go Nil = xs
-  go (Map n mbf ks vs m) = Map n mbf ks vs (go m)
+  go (Map n mbf ks vs m) = cons n mbf ks vs (go m)
+{-# INLINE union #-}
 
 -- | Offset binary search
 --
