@@ -1,0 +1,14 @@
+
+
+stg_GetMutableElemPtr
+/* MutableArray# s a -> Int# ->Adr# */
+{
+    W_ arr, p, ind;
+    arr = R1; // anything else?
+    ind = R2;
+
+
+    p = arr + SIZEOF_StgMutArrPtrs + WDS(ind);
+    RET_P(p);
+    
+}
