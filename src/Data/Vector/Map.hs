@@ -67,15 +67,10 @@ module Data.Vector.Map
   , rebuild
   ) where
 
-import Control.Applicative hiding (empty)
-import Control.Monad.ST
 import Data.Bits
 import Data.Hashable
 import qualified Data.List as List
 import Data.Vector.Array
-import qualified Data.Vector.Bloom as B
-import qualified Data.Vector.Bloom.Mutable as MB
-import Data.Vector.Bloom.Util
 import Data.Vector.Fusion.Stream.Monadic (Stream(..))
 import qualified Data.Vector.Fusion.Stream.Monadic as Stream
 import Data.Vector.Fusion.Util
@@ -85,30 +80,13 @@ import Prelude hiding (null, lookup)
 
 #define BOUNDS_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Bounds)
 
-baseRate :: Double
-baseRate = 0.001
-
-
-blooming :: (Hashable k, Arrayed k) => Array k -> Maybe B.Bloom
-blooming _ = Nothing
-{-
-blooming ks
-  | n < 125000 = Nothing
-  | m <- optimalWidth n $ baseRate / log (fromIntegral n)
-  , k <- optimalHashes n m = Just $ runST $ do
-    mb <- MB.mbloom k m
-    G.forM_ ks $ \a -> MB.insert a mb
-    B.freeze mb
-  where n = G.length ks
--}
-
 -- | This Map is implemented as an insert-only Cache Oblivious Lookahead Array (COLA) with amortized complexity bounds
 -- that are equal to those of a B-Tree when it is used ephemerally, using Bloom filters to replace the fractional
 -- cascade.
 data Map k v
   = Nil
   | One !k v !(Map k v)
-  | Map !Int (Maybe B.Bloom) !(Array k) !(Array v) !(Map k v)
+  | Map !Int !(Array k) !(Array v) !(Map k v)
 
 deriving instance (Show (Arr v v), Show (Arr k k), Show k, Show v) => Show (Map k v)
 deriving instance (Read (Arr v v), Read (Arr k k), Read k, Read v) => Read (Map k v)
@@ -137,9 +115,8 @@ lookup !k m0 = go m0 where
   go (One i a m)
     | k == i    = Just a
     | otherwise = go m
-  go (Map n mbf ks vs m)
-    | maybe True (B.elem k) mbf
-    , j <- search (\i -> ks G.! i >= k) 0 (n-1)
+  go (Map n ks vs m)
+    | j <- search (\i -> ks G.! i >= k) 0 (n-1)
     , ks G.! j == k = Just $ vs G.! j
     | otherwise = go m
 {-# INLINE lookup #-}
@@ -156,10 +133,10 @@ vseq a b = G.elemseq (undefined :: Arr a a) a b
 
 -- | /O(log n)/ ephemerally amortized, /O(n)/ worst case. Insert an element.
 insert :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
-insert !k v (Map n1 _ ks1 vs1 (Map n2 _ ks2 vs2 m))
+insert !k v (Map n1 ks1 vs1 (Map n2 ks2 vs2 m))
   | threshold n1 n2 = insert2 k v ks1 vs1 ks2 vs2 m
 insert !ka va (One kb vb (One kc vc m)) = case G.unstream $ Fusion.insert ka va rest of
-    V_Pair n ks vs -> Map n (blooming ks) ks vs m
+    V_Pair n ks vs -> Map n ks vs m
   where
     rest = case compare kb kc of
       LT -> Stream.fromListN 2 [(kb,vb),(kc,vc)]
@@ -170,13 +147,11 @@ insert k v m = v `vseq` One k v m
 
 insert2 :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Array k -> Array v -> Array k -> Array v -> Map k v -> Map k v
 insert2 k v ks1 vs1 ks2 vs2 m = case G.unstream $ Fusion.insert k v (zips ks1 vs1) `Fusion.merge` zips ks2 vs2 of
-  V_Pair n ks3 vs3 -> Map n (blooming ks3) ks3 vs3 m
+  V_Pair n ks3 vs3 -> Map n ks3 vs3 m
 {-# INLINE insert2 #-}
 
 fromDistinctAscList :: (Hashable k, Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromDistinctAscList kvs = fromList kvs
--- fromDistinctAscList kvs = case G.fromList kvs of
---   V_Pair n ks vs -> Map n (blooming ks) ks vs Nil
 {-# INLINE fromDistinctAscList #-}
 
 fromList :: (Hashable k, Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
@@ -190,11 +165,11 @@ split k m0 = go m0 where
     (xs,ys)
        | j < k     -> (insert j a xs, ys)
        | otherwise -> (xs, insert j a ys)
-  go (Map n _ ks vs m) = case go m of
+  go (Map n ks vs m) = case go m of
     (xs,ys) -> case G.splitAt j ks of
       (kxs,kys) -> case G.splitAt j vs of
-        (vxs,vys) -> ( cons j     (blooming kxs) kxs vxs xs
-                     , cons (n-j) (blooming kys) kys vys ys
+        (vxs,vys) -> ( cons j     kxs vxs xs
+                     , cons (n-j) kys vys ys
                      )
       where j = search (\i -> ks G.! i >= k) 0 n
 {-# INLINE split #-}
@@ -208,11 +183,11 @@ split' k m0 = go m0 where
     (xs,ys)
        | j < k     -> (One j a xs, ys)
        | otherwise -> (xs, One j a ys)
-  go (Map n _ ks vs m) = case go m of
+  go (Map n ks vs m) = case go m of
     (xs,ys) -> case G.splitAt j ks of
       (kxs,kys) -> case G.splitAt j vs of
-        (vxs,vys) -> ( Map j     (blooming kxs) kxs vxs xs
-                     , Map (n-j) (blooming kys) kys vys ys
+        (vxs,vys) -> ( Map j     kxs vxs xs
+                     , Map (n-j) kys vys ys
                      )
       where j = search (\i -> ks G.! i >= k) 0 n
 {-# INLINE split' #-}
@@ -221,7 +196,7 @@ union :: (Hashable k, Ord k, Arrayed k, Arrayed v) => Map k v -> Map k v -> Map 
 union ys0 xs = go ys0 where
   go Nil = xs
   go (One k v m) = insert k v (go m)
-  go (Map n mbf ks vs m) = cons n mbf ks vs (go m)
+  go (Map n ks vs m) = cons n ks vs (go m)
 {-# INLINE union #-}
 
 -- | Offset binary search
@@ -237,25 +212,25 @@ search p = go where
           m = l + unsafeShiftR hml 1 + unsafeShiftR hml 6
 {-# INLINE search #-}
 
-cons :: (Hashable k, Ord k, Arrayed k, Arrayed v) => Int -> Maybe B.Bloom -> Array k -> Array v -> Map k v -> Map k v
-cons 0 _   _  _  m = m
-cons 1 _   ks vs m = insert (G.unsafeHead ks) (G.unsafeHead vs) m
-cons n _   ks vs (Map n2 _ ks' vs' m)
+cons :: (Hashable k, Ord k, Arrayed k, Arrayed v) => Int -> Array k -> Array v -> Map k v -> Map k v
+cons 0 _  _  m = m
+cons 1 ks vs m = insert (G.unsafeHead ks) (G.unsafeHead vs) m
+cons n ks vs (Map n2 ks' vs' m)
   | threshold n n2
   , nc <- min (n-1) n2
   , (ks1, ks2) <- G.splitAt nc ks
   , (vs1, vs2) <- G.splitAt nc vs
   , k <- G.unsafeHead ks2, ks3 <- G.unsafeTail ks2
   , v <- G.unsafeHead vs2, vs3 <- G.unsafeTail vs2
-  = cons (n-nc-1) (blooming ks3) ks3 vs3 $ insert2 k v ks1 vs1 ks' vs' m
-cons n mbf ks vs m = Map n (mbf <|> blooming ks) ks vs m
+  = cons (n-nc-1) ks3 vs3 $ insert2 k v ks1 vs1 ks' vs' m
+cons n ks vs m = Map n ks vs m
 {-# INLINABLE cons #-}
 
 -- | If using have trashed our size invariants we can use this to restore them
 rebuild :: (Hashable k, Ord k, Arrayed k, Arrayed v) => Map k v -> Map k v
 rebuild Nil = Nil
 rebuild (One k v m) = insert k v m
-rebuild (Map n mbf ks vs m) = cons n mbf ks vs (rebuild m)
+rebuild (Map n ks vs m) = cons n ks vs (rebuild m)
 {-# INLINABLE rebuild #-}
 
 zips :: (G.Vector v a, G.Vector u b) => v a -> u b -> Stream Id (a, b)
@@ -265,6 +240,6 @@ zips va ub = Stream.zip (G.stream va) (G.stream ub)
 -- * Debugging
 
 shape :: Map k v -> [Int]
-shape Nil             = []
-shape (One _ _ m)     = 1 : shape m
-shape (Map n _ _ _ m) = n : shape m
+shape Nil           = []
+shape (One _ _ m)   = 1 : shape m
+shape (Map n _ _ m) = n : shape m
