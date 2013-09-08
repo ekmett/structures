@@ -80,6 +80,8 @@ library
 
   hs-source-dirs: src
 
+  c-sources: cbits/prefetch.c
+
   exposed-modules:
     Data.Vector.Array
     Data.Vector.Bit
@@ -87,6 +89,7 @@ library
     Data.Vector.Bloom.Mutable
     Data.Vector.Bloom.Util
     Data.Vector.Map
+    Data.Vector.Prefetch
     Data.Vector.Map.Fusion
 
   ghc-options: -Wall
