@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -120,8 +121,8 @@ empty = Nil
 {-# INLINE empty #-}
 
 -- | /O(1)/ Construct a 'Map' from a single key/value pair.
-singleton :: k -> v -> Map k v
-singleton k v = One k v Nil
+singleton :: Arrayed v => k -> v -> Map k v
+singleton k v = v `vseq` One k v Nil
 {-# INLINE singleton #-}
 
 -- | /O(log n)/ persistently amortized, /O(n)/ worst case. Lookup an element.
@@ -146,6 +147,9 @@ threshold n1 n2 = n1 > unsafeShiftR n2 1
 -- two :: (Arrayed k, Arrayed v) => k -> v -> k -> v -> Map k v -> Map k v
 -- three :: (Arrayed k, Arrayed v) => k -> v -> k -> v -> k -> v -> Map k v -> Map k v
 
+vseq :: forall a b. Arrayed a => a -> b -> b
+vseq a b = G.elemseq (undefined :: Arr a a) a b
+
 -- | /O(log n)/ ephemerally amortized, /O(n)/ worst case. Insert an element.
 insert :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
 insert !k v (Map n1 _ ks1 vs1 (Map n2 _ ks2 vs2 m))
@@ -157,7 +161,7 @@ insert !ka va (One kb vb (One kc vc m)) = case G.unstream $ Fusion.insert ka va 
       LT -> Stream.fromListN 2 [(kb,vb),(kc,vc)]
       EQ -> Stream.fromListN 1 [(kb,vb)]
       GT -> Stream.fromListN 2 [(kc,vc),(kb,vb)]
-insert k v m = One k v m
+insert k v m = v `vseq` One k v m
 {-# INLINABLE insert #-}
 
 insert2 :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Array k -> Array v -> Array k -> Array v -> Map k v -> Map k v
