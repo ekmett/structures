@@ -86,7 +86,7 @@ import Prelude hiding (null, lookup)
 #define BOUNDS_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Bounds)
 
 baseRate :: Double
-baseRate = 0.1
+baseRate = 0.001
 
 blooming :: (Hashable k, Arrayed k) => Array k -> Maybe B.Bloom
 blooming ks
