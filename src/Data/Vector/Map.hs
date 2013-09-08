@@ -102,7 +102,7 @@ blooming ks
 -- cascade.
 data Map k v
   = Nil
-  | One !k v (Map k v)
+  | One !k v !(Map k v)
   | Map !Int (Maybe B.Bloom) !(Array k) !(Array v) !(Map k v)
 
 deriving instance (Show (Arr v v), Show (Arr k k), Show k, Show v) => Show (Map k v)
