@@ -150,31 +150,15 @@ threshold n1 n2 = n1 > unsafeShiftR n2 1
 insert :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
 insert !k v (Map n1 _ ks1 vs1 (Map n2 _ ks2 vs2 m))
   | threshold n1 n2 = insert2 k v ks1 vs1 ks2 vs2 m
-insert !ka va (One kb vb (One kc vc m))
-  = case compare ka kb of
-    LT -> case compare ka kc of
-      LT -> case compare kb kc of
-        LT -> three ka va kb vb kc vc m -- a,b,c
-        EQ -> two ka va kb vb m         -- a,b  | b == c
-        GT -> three ka va kc vc kb vb m -- a,c,b
-      EQ -> two ka va kb vb m           -- a,b  | a == c
-      GT -> three kc vc ka va kb vb m   -- c,a,b
-    EQ -> case compare ka kc of
-      LT -> two ka va kc vc m           -- a,c  | a == b
-      EQ -> One ka va m                 -- a    | a == b == c
-      GT -> two kc vc ka va m           -- c,a  | a == b
-    GT -> case compare kb kc of
-      LT -> case compare ka kc of
-        LT -> three kb vb ka va kc vc m -- b,a,c
-        EQ -> two kb vb ka va m         -- b,a  | a == c
-        GT -> three kb vb kc vc ka va m -- b,c,a
-      EQ -> two kb vb ka va m           -- b,a  | a == b
-      GT -> three kc vc kb vb ka va m   -- c,b,a
+insert !ka va (One kb vb (One kc vc m)) = case G.unstream $ Fusion.insert ka va rest of
+    V_Pair n ks vs -> Map n (blooming ks) ks vs m
   where
-    two k1 v1 k2 v2 m0         = Map 2 Nothing (G.fromListN 2 [k1,k2])    (G.fromListN 2 [v1,v2])    m0
-    three k1 v1 k2 v2 k3 v3 m0 = Map 3 Nothing (G.fromListN 3 [k1,k2,k3]) (G.fromListN 3 [v1,v2,v3]) m0
+    rest = case compare kb kc of
+      LT -> Stream.fromListN 2 [(kb,vb),(kc,vc)]
+      EQ -> Stream.fromListN 1 [(kb,vb)]
+      GT -> Stream.fromListN 2 [(kc,vc),(kb,vb)]
 insert k v m = One k v m
-{-# INLINE insert #-}
+{-# INLINABLE insert #-}
 
 insert2 :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Array k -> Array v -> Array k -> Array v -> Map k v -> Map k v
 insert2 k v ks1 vs1 ks2 vs2 m = case G.unstream $ Fusion.insert k v (zips ks1 vs1) `Fusion.merge` zips ks2 vs2 of
