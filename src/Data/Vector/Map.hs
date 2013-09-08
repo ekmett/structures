@@ -70,6 +70,7 @@ import Control.Applicative hiding (empty)
 import Control.Monad.ST
 import Data.Bits
 import Data.Hashable
+import qualified Data.Map as Map
 import qualified Data.List as List
 import Data.Vector.Array
 import qualified Data.Vector.Bloom as B
@@ -103,6 +104,8 @@ blooming ks
 data Map k v
   = Nil
   | One !k v !(Map k v)
+  | Two !k v !k v !(Map k v)
+  | Three !k v !k v !k v !(Map k v)
   | Map !Int (Maybe B.Bloom) !(Array k) !(Array v) !(Map k v)
 
 deriving instance (Show (Arr v v), Show (Arr k k), Show k, Show v) => Show (Map k v)
@@ -132,6 +135,16 @@ lookup !k m0 = go m0 where
   go (One i a m)
     | k == i    = Just a
     | otherwise = go m
+  go (Two i a j b m)
+    | i == k = Just a
+    | j == k = Just b
+    | otherwise = go m
+  go (Three ka a kb b kc c m)
+    = case compare k kb of
+      LT | ka == k -> Just a
+      EQ -> Just b
+      GT | kc == k -> Just c
+      _ -> go m
   go (Map n mbf ks vs m)
     | maybe True (B.elem k) mbf
     , j <- search (\i -> ks G.! i >= k) 0 (n-1)
@@ -143,6 +156,10 @@ threshold :: Int -> Int -> Bool
 threshold n1 n2 = n1 > unsafeShiftR n2 1
 {-# INLINE threshold #-}
 
+insort :: (Hashable k, Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v -> Map k v
+insort xs m | ys <- Map.fromList xs = case G.fromListN (Map.size ys) $ Map.toList ys of
+  V_Pair n ks vs -> Map n (blooming ks) ks vs m
+
 -- two :: (Arrayed k, Arrayed v) => k -> v -> k -> v -> Map k v -> Map k v
 -- three :: (Arrayed k, Arrayed v) => k -> v -> k -> v -> k -> v -> Map k v -> Map k v
 
@@ -150,13 +167,15 @@ threshold n1 n2 = n1 > unsafeShiftR n2 1
 insert :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
 insert !k v (Map n1 _ ks1 vs1 (Map n2 _ ks2 vs2 m))
   | threshold n1 n2 = insert2 k v ks1 vs1 ks2 vs2 m
-insert !ka va (One kb vb (One kc vc m)) = case G.unstream $ Fusion.insert ka va rest of
-    V_Pair n ks vs -> Map n (blooming ks) ks vs m
-  where
-    rest = case compare kb kc of
-      LT -> Stream.fromListN 2 [(kb,vb),(kc,vc)]
-      EQ -> Stream.fromListN 1 [(kb,vb)]
-      GT -> Stream.fromListN 2 [(kc,vc),(kb,vb)]
+insert !k0 v0 (One k1 v1 (One k2 v2 m)) = case Map.toList (Map.fromList [(k2,v2),(k1,v1),(k0,v0)]) of
+  [(k,v)] -> One k v m
+  [(ka,va),(kb,vb)] -> Two ka va kb vb m
+  [(ka,va),(kb,vb),(kc,vc)] -> Three ka va kb vb kc vc m
+  _ -> error "insert doesn't make sense"
+insert !k0 v0 (Two k1 v1 k2 v2 (One k3 v3 m)) = insort [(k3,v3),(k2,v2),(k1,v1),(k0,v0)] m
+insert !k0 v0 (Three k1 v1 k2 v2 k3 v3 (One k4 v4 m)) = insort [(k4,v4),(k3,v3),(k2,v2),(k1,v1),(k0,v0)] m
+insert !k0 v0 (Three k1 v1 k2 v2 k3 v3 (Two k4 v4 k5 v5 m)) = insort [(k5,v5),(k4,v4),(k3,v3),(k2,v2),(k1,v1),(k0,v0)] m
+insert !k0 v0 (Three k1 v1 k2 v2 k3 v3 (Three k4 v4 k5 v5 k6 v6 m)) = insort [(k6,v6),(k5,v5),(k4,v4),(k3,v3),(k2,v2),(k1,v1),(k0,v0)] m
 insert k v m = One k v m
 {-# INLINABLE insert #-}
 
@@ -259,4 +278,6 @@ zips va ub = Stream.zip (G.stream va) (G.stream ub)
 shape :: Map k v -> [Int]
 shape Nil             = []
 shape (One _ _ m)     = 1 : shape m
+shape (Two _ _ _ _ m) = 2 : shape m
+shape (Three _ _ _ _ _ _ m) = 3 : shape m
 shape (Map n _ _ _ m) = n : shape m
