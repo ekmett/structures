@@ -24,8 +24,6 @@ extra-source-files:
 description:
   This package is a playground for working with several types of advanced data structures including
   wavelet trees and cache oblivious lookahead arrays.
-  .
-  WARNING: Your program MUST be built with `ghc -threaded` if you depend on this library. The library depends on threaded Haskell RTS, which is only conditionally linked. If you don't do this you will see an error at link time about cas being missing.
 
 source-repository head
   type: git
@@ -52,13 +50,20 @@ flag test-hlint
   default: True
   manual: True
 
+flag threaded
+  default: True
+  manual: True
+
 flag llvm
   default: False
   manual: True
 
+flag optimized
+  default: True
+  manual: True
+
 library
   build-depends:
-    atomic-primops    >= 0.4   && < 0.5,
     base              >= 4     && < 5,
     contravariant     >= 0.4.2 && < 1,
     deepseq           >= 1.1   && < 1.4,
@@ -76,7 +81,6 @@ library
   hs-source-dirs: src
 
   exposed-modules:
-    Control.Concurrent.Deque
     Data.Vector.Array
     Data.Vector.Bit
     Data.Vector.Bloom
@@ -85,7 +89,13 @@ library
     Data.Vector.Map
     Data.Vector.Map.Fusion
 
-  ghc-options: -Wall -O2 -threaded
+  ghc-options: -Wall
+
+  if flag(optimized)
+    ghc-options: -O2
+
+  if flag(threaded)
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
 
   if flag(llvm)
     ghc-options: -fllvm
@@ -96,8 +106,14 @@ library
 test-suite properties
   type: exitcode-stdio-1.0
   main-is: properties.hs
-  ghc-options: -w -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -w
   hs-source-dirs: tests
+
+  if flag(threaded)
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+
+  if flag(llvm)
+    ghc-options: -fllvm
 
   if !flag(test-properties)
     buildable: False
@@ -114,8 +130,14 @@ test-suite properties
 test-suite hunit
   type: exitcode-stdio-1.0
   main-is: hunit.hs
-  ghc-options: -w -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -w
   hs-source-dirs: tests
+
+  if flag(threaded)
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+
+  if flag(llvm)
+    ghc-options: -fllvm
 
   if !flag(test-hunit)
     buildable: False
@@ -131,8 +153,14 @@ test-suite hunit
 test-suite hlint
   type: exitcode-stdio-1.0
   main-is: hlint.hs
-  ghc-options: -w -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -w
   hs-source-dirs: tests
+
+  if flag(threaded)
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+
+  if flag(llvm)
+    ghc-options: -fllvm
 
   if !flag(test-hlint)
     buildable: False
@@ -145,8 +173,14 @@ test-suite hlint
 test-suite doctests
   type:           exitcode-stdio-1.0
   main-is:        doctests.hs
-  ghc-options:    -Wall -threaded
+  ghc-options:    -Wall
   hs-source-dirs: tests
+
+  if flag(threaded)
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+
+  if flag(llvm)
+    ghc-options: -fllvm
 
   if !flag(test-doctests)
     buildable: False
@@ -167,8 +201,18 @@ test-suite doctests
 benchmark inserts
   type:           exitcode-stdio-1.0
   main-is:        inserts.hs
-  ghc-options:    -Wall -O2 -threaded -rtsopts -with-rtsopts=-N -fllvm
+  ghc-options:    -Wall
   hs-source-dirs: benchmarks
+
+  if flag(optimized)
+    ghc-options: -O2
+
+  if flag(threaded)
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+
+  if flag(llvm)
+    ghc-options: -fllvm
+
   build-depends:
     array,
     base,
@@ -182,13 +226,48 @@ benchmark inserts
 benchmark maps
   type:           exitcode-stdio-1.0
   main-is:        MapBench.hs
-  ghc-options:    -Wall -O2 -threaded -rtsopts -with-rtsopts=-N -fllvm
+  ghc-options:    -Wall
   hs-source-dirs: benchmarks
+
+  if flag(optimized)
+    ghc-options: -O2
+
+  if flag(threaded)
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+
+  if flag(llvm)
+    ghc-options: -fllvm
+
   build-depends:
     array,
     base,
     containers,
     criterion,
     mwc-random,
+    structures,
+    vector
+
+benchmark lookups
+  type:           exitcode-stdio-1.0
+  main-is:        lookups.hs
+  ghc-options:    -Wall
+  hs-source-dirs: benchmarks
+
+  if flag(optimized)
+    ghc-options: -O2
+
+  if flag(threaded)
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+
+  if flag(llvm)
+    ghc-options: -fllvm
+
+  build-depends:
+    array,
+    base,
+    containers,
+    criterion,
+    deepseq,
+    MonadRandom,
     structures,
     vector

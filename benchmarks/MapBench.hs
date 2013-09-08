@@ -28,7 +28,7 @@ main = do ns <- randVecStd 1000 :: IO (U.Vector Int)
                      then "We are sane"
                      else "We are insane, man!"
           defaultMain [ bench "Map insertion" $
-                          whnf minsert ns 
+                          whnf minsert ns
                       , bench "VMap insertion" $
                           whnf vinsert ns
                       , bench "map sum" $
