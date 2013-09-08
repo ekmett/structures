@@ -182,15 +182,16 @@ insert4 :: forall k v. (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Ma
 insert4 !k v (Map n1 _ ks1 vs1 (Map _  _ ks2 vs2
              (Map _  _ ks3 vs3 (Map n4  _ ks4 vs4 m))))
   | n1 > unsafeShiftR n4 2 = spawn $ case va of
-    V_Pair na ksa vsa -> Map na (blooming ksa) ksa vsa $ case vb of
-      V_Pair nb ksb vsb -> Map nb (blooming ksb) ksb vsb m
+    V_Pair na ksa vsa -> case vb of
+      V_Pair nb ksb vsb -> case G.unstream $ zips ksa vsa `Fusion.merge` zips ksb vsb of
+        V_Pair nc ksc vsc -> Map nc (blooming ksc) ksc vsc m
   where va :: V_Pair (k,v)
         va = G.unstream $ Fusion.insert k v (zips ks1 vs1) `Fusion.merge` zips ks2 vs2
         vb :: V_Pair (k,v)
         vb = G.unstream $ zips ks3 vs3 `Fusion.merge` zips ks4 vs4
         spawn xs
-          | n1 <= 10000 = xs
-          | otherwise   = vb `par` va `pseq` xs
+          | n1 <= 1000 = xs
+          | otherwise  = vb `par` va `pseq` xs
 insert4 !ka va (One kb vb (One kc vc (One kd vd (One ke ve m)))) = case G.unstream $ Fusion.insert ka va s1 `Fusion.merge` s2 of
     V_Pair n ks vs -> Map n (blooming ks) ks vs m
   where
