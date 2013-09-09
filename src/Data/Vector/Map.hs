@@ -146,6 +146,7 @@ threshold n1 n2 = n1 > unsafeShiftR n2 1
 -- force a value as much as it would be forced by inserting it into an Array
 vseq :: forall a b. Arrayed a => a -> b -> b
 vseq a b = G.elemseq (undefined :: Array a) a b
+{-# INLINE vseq #-}
 
 -- | O((log N)\/B) ephemerally amortized loads for each cache, O(N\/B) worst case. Insert an element.
 insert :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
@@ -284,7 +285,6 @@ elements i n ks vs = Entry i (G.unsafeHead ks) (G.unsafeHead vs) 1 n ks vs
 merges :: forall k v. (Ord k, Arrayed k, Arrayed v) => [Entry k v] -> Map k v -> Map k v
 merges [] m = m
 merges es m = runST $ do
-  -- Unsafe.unsafeIOToST $ print ("elements",es)
   mv0   <- G.unsafeThaw (G.fromList es :: B.Vector (Entry k v))
   let nmv0 = BM.length mv0
   let tally !acc k
@@ -293,9 +293,8 @@ merges es m = runST $ do
         Entry _ _ _ x y _ _ <- BM.unsafeRead mv0 k
         tally (acc + 1 + y - x) (k+1)
   r_max <- tally 0 0
-  -- Unsafe.unsafeIOToST $ print ("r_max",r_max)
-  mks   <- GM.new r_max -- big enough!
-  mvs   <- GM.new r_max -- big enough!
+  mks   <- GM.new r_max
+  mvs   <- GM.new r_max
   let go mv li lk lo ln lks lvs lr
         | GM.null mv = do
           F.forM_ [lo..ln-1] $ \ i -> do
@@ -337,7 +336,6 @@ merges es m = runST $ do
         run lr lo
   H.heapify mv0
   entry@(Entry li lk lv o n ks vs) <- H.findMin mv0
-  -- Unsafe.unsafeIOToST $ print ("entry0",entry)
   mv1 <- H.deleteMin mv0
   GM.unsafeWrite mks 0 lk
   GM.unsafeWrite mvs 0 lv
@@ -348,3 +346,4 @@ merges es m = runST $ do
      zks <- G.unsafeFreeze (GM.unsafeSlice 0 r mks)
      zvs <- G.unsafeFreeze (GM.unsafeSlice 0 r mvs)
      return $ Map r zks zvs m
+{-# INLINE merges #-}
