@@ -78,6 +78,7 @@ module Data.Vector.Map
   ) where
 
 import Control.Monad.ST
+import Control.Monad.ST.Unsafe as Unsafe
 import Data.Bits
 import qualified Data.Foldable as F
 import qualified Data.List as List
@@ -168,12 +169,11 @@ fromDistinctAscList :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromDistinctAscList kvs = fromList kvs
 {-# INLINE fromDistinctAscList #-}
 
-insert4 :: forall k v. (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
+insert4 :: forall k v. (Ord k, Show k, Show v, Show (Arr k k), Show (Arr v v), Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
+-- insert4 !k v (Map n1 ks1 vs1 (Map n2 ks2 vs2 m))
+--  | threshold n1 n2 = insert2 k v ks1 vs1 ks2 vs2 m
 insert4 !k v (Map n1 ks1 vs1 (Map n2 ks2 vs2 m))
-  | threshold n1 n2 = insert2 k v ks1 vs1 ks2 vs2 m
-
---insert4 !k v (Map n1 ks1 vs1 (Map n2 ks2 vs2 m))
---  | threshold n1 n2 = merges [element 0 k v, elements 1 n1 ks1 vs1, elements 2 n2 ks2 vs2] m
+  | threshold n1 n2 = merges [element 0 k v, elements 1 n1 ks1 vs1, elements 2 n2 ks2 vs2] m
 insert4 !ka va (One kb vb (One kc vc m)) = merges [element 0 ka va, element 1 kb vb, element 3 kc vc] m
 insert4 k v m = v `vseq` One k v m
 {-# INLINABLE insert4 #-}
@@ -287,22 +287,24 @@ instance Ord k => Ord (Entry k v) where
   compare (Entry i ki _ _ _ _ _) (Entry j kj _ _ _ _ _) = compare ki kj `mappend` compare i j
 
 element :: (Arrayed k, Arrayed v) => Int -> k -> v -> Entry k v
-element i k v = Entry i k v 0 0 (error "BAD") (error "VERY BAD")
+element i k v = Entry i k v 0 0 G.empty G.empty -- (error "BAD") (error "VERY BAD")
 {-# INLINE element #-}
 
 elements :: (Arrayed k, Arrayed v) => Int -> Int -> Array k -> Array v -> Entry k v
 elements i n ks vs = Entry i (G.unsafeHead ks) (G.unsafeHead vs) 1 n ks vs
 {-# INLINE elements #-}
 
-merges :: forall k v. (Ord k, Arrayed k, Arrayed v) => [Entry k v] -> Map k v -> Map k v
+merges :: forall k v. (Ord k, Show k, Show v, Show (Arr k k), Show (Arr v v), Arrayed k, Arrayed v) => [Entry k v] -> Map k v -> Map k v
 merges [] m = m
 merges es m = runST $ do
+  -- Unsafe.unsafeIOToST $ print ("elements",es)
   mv0   <- G.unsafeThaw (G.fromList es :: B.Vector (Entry k v))
-  let tally !acc 0 = return acc
+  let tally !acc 0 = return (acc+1)
       tally !acc k = do
         Entry _ _ _ x y _ _ <- BM.unsafeRead mv0 k
-        tally (acc + y - x) k
+        tally (acc + 1 + y - x) (k-1)
   r_max <- tally 0 (BM.length mv0-1)
+  -- Unsafe.unsafeIOToST $ print ("r_max",r_max)
   mks   <- GM.new r_max -- big enough!
   mvs   <- GM.new r_max -- big enough!
   let go mv li lk lo ln lks lvs lr
@@ -345,11 +347,15 @@ merges es m = runST $ do
                     go mv ni nk no nn nks nvs nr
         run lr lo
   H.heapify mv0
-  Entry li lk lv o n ks vs <- H.findMin mv0
+  entry@(Entry li lk lv o n ks vs) <- H.findMin mv0
+  -- Unsafe.unsafeIOToST $ print ("entry0",entry)
   mv1 <- H.deleteMin mv0
   GM.unsafeWrite mks 0 lk
   GM.unsafeWrite mvs 0 lv
   r  <- go mv1 li lk o n ks vs 1
-  zks <- G.unsafeFreeze (GM.unsafeSlice 0 r mks)
-  zvs <- G.unsafeFreeze (GM.unsafeSlice 0 r mvs)
-  return $ Map r zks zvs m
+  if r == 1
+    then return $ One lk lv m
+    else do
+     zks <- G.unsafeFreeze (GM.unsafeSlice 0 r mks)
+     zvs <- G.unsafeFreeze (GM.unsafeSlice 0 r mvs)
+     return $ Map r zks zvs m
