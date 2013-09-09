@@ -156,19 +156,6 @@ insert !ka va (One kb vb (One kc vc m)) = merges [element 0 ka va, element 1 kb 
 insert k v m = v `vseq` One k v m
 {-# INLINABLE insert #-}
 
-{-
-insert !k v (Map n1 ks1 vs1 (Map n2 ks2 vs2 m))
-  | threshold n1 n2 = insert2 k v ks1 vs1 ks2 vs2 m
-insert !ka va (One kb vb (One kc vc m)) = case G.unstream $ Fusion.insert ka va rest of
-    V_Pair n ks vs -> Map n ks vs m
-  where
-    rest = case compare kb kc of
-      LT -> Stream.fromListN 2 [(kb,vb),(kc,vc)]
-      EQ -> Stream.fromListN 1 [(kb,vb)]
-      GT -> Stream.fromListN 2 [(kc,vc),(kb,vb)]
-insert k v m = v `vseq` One k v m
--}
-
 insert2 :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Array k -> Array v -> Array k -> Array v -> Map k v -> Map k v
 insert2 k v ks1 vs1 ks2 vs2 m = case G.unstream $ Fusion.insert k v (zips ks1 vs1) `Fusion.merge` zips ks2 vs2 of
   V_Pair n ks3 vs3 -> Map n ks3 vs3 m
@@ -270,9 +257,11 @@ deriving instance (Read (Arr v v), Read (Arr k k), Read k, Read v) => Read (Entr
 
 instance Eq k => Eq (Entry k v) where
   Entry i ki _ _ _ _ _ == Entry j kj _ _ _ _ _ = i == j && ki == kj
+  {-# INLINE (==) #-}
 
 instance Ord k => Ord (Entry k v) where
   compare (Entry i ki _ _ _ _ _) (Entry j kj _ _ _ _ _) = compare ki kj `mappend` compare i j
+  {-# INLINE compare #-}
 
 element :: (Arrayed k, Arrayed v) => Int -> k -> v -> Entry k v
 element i k v = Entry i k v 0 0 (error "BAD") (error "VERY BAD")
