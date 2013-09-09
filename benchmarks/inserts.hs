@@ -7,6 +7,7 @@ import Control.Monad.Random
 import Control.Monad
 import Criterion.Main
 import Control.DeepSeq
+import Criterion.Config 
 
 instance NFData (V.Map k v)
 
@@ -28,8 +29,14 @@ fromAsc n = V.fromDistinctAscList $ Prelude.map (\x -> (x,x)) [0..n]
 buildM :: Int -> M.Map Int Int
 buildM n = F.foldl' (flip (join M.insert)) M.empty $ take n $ randoms (mkStdGen 1)
 
+myConfig :: Config
+myConfig = defaultConfig {
+              -- Always GC between runs.
+              cfgSamples = ljust 10
+            }
+
 main :: IO ()
-main = defaultMain
+main = defaultMainWith myConfig (return ())
   [ bench "COLA insert 10k"               $ nf buildV    10000
   , bench "COLA insert4 10k"     $ nf build4 10000
 --  , bench "COLA insert6 10k"     $ nf build6 10000
