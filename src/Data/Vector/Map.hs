@@ -54,6 +54,10 @@
 -- /NB:/ when used with boxed data this structure may hold onto references to old versions
 -- of things for many updates to come until sufficient operations have happened to merge them out
 -- of the COLA.
+--
+-- TODO: track actual percentage of occupancy for each vector compared to the source vector it was based on.
+-- This would permit 'split' and other operations that trim a 'Map' to properly reason about space usage by
+-- borrowing the 1/3rd occupancy rule from a Stratified Doubling Array.
 -----------------------------------------------------------------------------
 module Data.Vector.Map
   ( Map(..)
@@ -69,8 +73,6 @@ module Data.Vector.Map
   , shape
   , split
   , union
-  -- * Non-normalized operations
-  , split'
   -- * Rebuild
   , rebuild
   ) where
@@ -114,7 +116,7 @@ singleton :: Arrayed v => k -> v -> Map k v
 singleton k v = v `vseq` One k v Nil
 {-# INLINE singleton #-}
 
--- | /O(log n)/ persistently amortized, /O(n)/ worst case. Lookup an element.
+-- | /O(log^2 N)/ persistently amortized, /O(N)/ worst case. Lookup an element.
 lookup :: (Ord k, Arrayed k, Arrayed v) => k -> Map k v -> Maybe v
 lookup !k m0 = go m0 where
   {-# INLINE go #-}
@@ -132,14 +134,11 @@ threshold :: Int -> Int -> Bool
 threshold n1 n2 = n1 > unsafeShiftR n2 1
 {-# INLINE threshold #-}
 
--- two :: (Arrayed k, Arrayed v) => k -> v -> k -> v -> Map k v -> Map k v
--- three :: (Arrayed k, Arrayed v) => k -> v -> k -> v -> k -> v -> Map k v -> Map k v
-
 -- force a value as much as it would be forced by inserting it into an Array
 vseq :: forall a b. Arrayed a => a -> b -> b
 vseq a b = G.elemseq (undefined :: Array a) a b
 
--- | /O(log n)/ ephemerally amortized, /O(n)/ worst case. Insert an element.
+-- | /O((log N)/B)/ ephemerally amortized loads for each cache, /O(N/B)/ worst case. Insert an element.
 insert :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
 insert !k v (Map n1 ks1 vs1 (Map n2 ks2 vs2 m))
   | threshold n1 n2 = insert2 k v ks1 vs1 ks2 vs2 m
@@ -191,6 +190,7 @@ fromList :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromList xs = List.foldl' (\m (k,v) -> insert k v m) empty xs
 {-# INLINE fromList #-}
 
+-- | Generates two legal maps from a source 'Map'. The asymptotic analysis is preserved if only one of these is updated.
 split :: (Ord k, Arrayed k, Arrayed v) => k -> Map k v -> (Map k v, Map k v)
 split k m0 = go m0 where
   go Nil = (Nil, Nil)
@@ -201,29 +201,9 @@ split k m0 = go m0 where
   go (Map n ks vs m) = case go m of
     (xs,ys) -> case G.splitAt j ks of
       (kxs,kys) -> case G.splitAt j vs of
-        (vxs,vys) -> ( cons j     kxs vxs xs
-                     , cons (n-j) kys vys ys
-                     )
+        (vxs,vys) -> (cons j kxs vxs xs, cons (n-j) kys vys ys)
       where j = search (\i -> ks G.! i >= k) 0 n
 {-# INLINE split #-}
-
--- | This trashes size invariants and inherently uses the structure twice, so asymptotic analysis if you
--- continue to edit this structure will be hard, but it can still be used for reads efficiently.
-split' :: (Ord k, Arrayed k, Arrayed v) => k -> Map k v -> (Map k v, Map k v)
-split' k m0 = go m0 where
-  go Nil = (Nil, Nil)
-  go (One j a m) = case go m of
-    (xs,ys)
-       | j < k     -> (One j a xs, ys)
-       | otherwise -> (xs, One j a ys)
-  go (Map n ks vs m) = case go m of
-    (xs,ys) -> case G.splitAt j ks of
-      (kxs,kys) -> case G.splitAt j vs of
-        (vxs,vys) -> ( Map j     kxs vxs xs
-                     , Map (n-j) kys vys ys
-                     )
-      where j = search (\i -> ks G.! i >= k) 0 n
-{-# INLINE split' #-}
 
 union :: (Ord k, Arrayed k, Arrayed v) => Map k v -> Map k v -> Map k v
 union ys0 xs = go ys0 where
