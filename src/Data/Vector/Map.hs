@@ -274,7 +274,7 @@ instance Ord k => Ord (Entry k v) where
   compare (Entry i ki _ _ _ _ _) (Entry j kj _ _ _ _ _) = compare ki kj `mappend` compare i j
 
 element :: (Arrayed k, Arrayed v) => Int -> k -> v -> Entry k v
-element i k v = Entry i k v 0 0 G.empty G.empty -- (error "BAD") (error "VERY BAD")
+element i k v = Entry i k v 0 0 (error "BAD") (error "VERY BAD")
 {-# INLINE element #-}
 
 elements :: (Arrayed k, Arrayed v) => Int -> Int -> Array k -> Array v -> Entry k v
@@ -298,7 +298,7 @@ merges es m = runST $ do
   mvs   <- GM.new r_max -- big enough!
   let go mv li lk lo ln lks lvs lr
         | GM.null mv = do
-          F.forM_ [lo..ln] $ \ i -> do
+          F.forM_ [lo..ln-1] $ \ i -> do
             k <- G.unsafeIndexM lks i
             v <- G.unsafeIndexM lvs i
             let j = lr+i-lo
