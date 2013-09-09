@@ -70,6 +70,7 @@ module Data.Vector.Map
   , insertDistinctAscList
   , fromDistinctAscList
   , fromList
+  , fromList4
   , shape
   , split
   , union
@@ -78,7 +79,9 @@ module Data.Vector.Map
   ) where
 
 import Control.Monad.ST
+-- import Control.Monad.ST.Unsafe as Unsafe
 import Data.Bits
+import qualified Data.Foldable as F
 import qualified Data.List as List
 import Data.Monoid
 import qualified Data.Vector.Heap as H
@@ -143,6 +146,7 @@ threshold n1 n2 = n1 > unsafeShiftR n2 1
 -- force a value as much as it would be forced by inserting it into an Array
 vseq :: forall a b. Arrayed a => a -> b -> b
 vseq a b = G.elemseq (undefined :: Array a) a b
+{-# INLINE vseq #-}
 
 -- | O((log N)\/B) ephemerally amortized loads for each cache, O(N\/B) worst case. Insert an element.
 insert :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
@@ -155,6 +159,9 @@ insert !ka va (One kb vb (One kc vc m)) = case G.unstream $ Fusion.insert ka va 
       LT -> Stream.fromListN 2 [(kb,vb),(kc,vc)]
       EQ -> Stream.fromListN 1 [(kb,vb)]
       GT -> Stream.fromListN 2 [(kc,vc),(kb,vb)]
+-- insert !k v (Map n1 ks1 vs1 (Map n2 ks2 vs2 m))
+--   | threshold n1 n2 = merges [element 0 k v, elements 1 n1 ks1 vs1, elements 2 n2 ks2 vs2] m
+-- insert !ka va (One kb vb (One kc vc m)) = merges [element 0 ka va, element 1 kb vb, element 3 kc vc] m
 insert k v m = v `vseq` One k v m
 {-# INLINABLE insert #-}
 
@@ -173,35 +180,31 @@ insertDistinctAscList kvs m = case G.fromList kvs of
 {-# INLINE insertDistinctAscList #-}
 
 insert4 :: forall k v. (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
-insert4 = insert
-{-
-insert4 !k v (Map n1 ks1 vs1 (Map _  ks2 vs2 (Map _  ks3 vs3 (Map n4 ks4 vs4 m))))
-  | n1 > unsafeShiftR n4 2 = case va of
-    V_Pair _ ksa vsa -> case vb of
-      V_Pair _ ksb vsb -> case G.unstream $ zips ksa vsa `Fusion.merge` zips ksb vsb of
-        V_Pair nc ksc vsc -> Map nc ksc vsc m
-  where va :: V_Pair (k,v)
-        va = G.unstream $ Fusion.insert k v (zips ks1 vs1) `Fusion.merge` zips ks2 vs2
-        vb :: V_Pair (k,v)
-        vb = G.unstream $ zips ks3 vs3 `Fusion.merge` zips ks4 vs4
-insert4 !ka va (One kb vb (One kc vc (One kd vd (One ke ve m)))) = case G.unstream $ Fusion.insert ka va s1 `Fusion.merge` s2 of
-    V_Pair n ks vs -> Map n ks vs m
-  where
-    s1 = case compare kb kc of
-      LT -> Stream.fromListN 2 [(kb,vb),(kc,vc)]
-      EQ -> Stream.fromListN 1 [(kb,vb)]
-      GT -> Stream.fromListN 2 [(kc,vc),(kb,vb)]
-    s2 = case compare kd ke of
-      LT -> Stream.fromListN 2 [(kd,vd),(ke,ve)]
-      EQ -> Stream.fromListN 1 [(kd,vd)]
-      GT -> Stream.fromListN 2 [(ke,ve),(kd,vd)]
-insert4 k v m = One k v m
--}
+insert4 !k v (Map n1 ks1 vs1 (Map n2  ks2 vs2 (Map n3  ks3 vs3 (Map n4 ks4 vs4 m))))
+  | n1 > unsafeShiftR n4 2 = merges
+    [ element 0 k v
+    , elements 1 n1 ks1 vs1
+    , elements 2 n2 ks2 vs2
+    , elements 3 n3 ks3 vs3
+    , elements 4 n4 ks4 vs4
+    ] m
+insert4 !ka va (One kb vb (One kc vc (One kd vd (One ke ve m)))) = merges
+  [ element 0 ka va
+  , element 1 kb vb
+  , element 3 kc vc
+  , element 4 kd vd
+  , element 5 ke ve
+  ] m
+insert4 k v m = v `vseq` One k v m
 {-# INLINABLE insert4 #-}
 
 fromList :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromList xs = List.foldl' (\m (k,v) -> insert k v m) empty xs
 {-# INLINE fromList #-}
+
+fromList4 :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
+fromList4 xs = List.foldl' (\m (k,v) -> insert4 k v m) empty xs
+{-# INLINE fromList4 #-}
 
 -- | Generates two legal maps from a source 'Map'. The asymptotic analysis is preserved if only one of these is updated.
 split :: (Ord k, Arrayed k, Arrayed v) => k -> Map k v -> (Map k v, Map k v)
@@ -272,38 +275,49 @@ shape (Map n _ _ m) = n : shape m
 
 -- * Merging
 
-data Entry k v = Entry {-# UNPACK #-} !Int !k v {-# UNPACK #-} !Int {-# UNPACK #-} !Int !(Array k) !(Array v)
+data Entry k v = Entry {-# UNPACK #-} !Int !k v {-# UNPACK #-} !Int {-# UNPACK #-} !Int (Array k) (Array v)
 
 deriving instance (Show (Arr v v), Show (Arr k k), Show k, Show v) => Show (Entry k v)
 deriving instance (Read (Arr v v), Read (Arr k k), Read k, Read v) => Read (Entry k v)
 
 instance Eq k => Eq (Entry k v) where
   Entry i ki _ _ _ _ _ == Entry j kj _ _ _ _ _ = i == j && ki == kj
+  {-# INLINE (==) #-}
 
 instance Ord k => Ord (Entry k v) where
   compare (Entry i ki _ _ _ _ _) (Entry j kj _ _ _ _ _) = compare ki kj `mappend` compare i j
+  {-# INLINE compare #-}
 
 element :: (Arrayed k, Arrayed v) => Int -> k -> v -> Entry k v
-element i k v = Entry i k v 0 0 G.empty G.empty
+element i k v = Entry i k v 0 0 (error "BAD") (error "VERY BAD")
 {-# INLINE element #-}
 
-entry :: (Arrayed k, Arrayed v) => Int -> Array k -> Array v -> Entry k v
-entry i ks vs = Entry i (G.unsafeHead ks) (G.unsafeHead vs) 1 (G.length ks) ks vs
-{-# INLINE entry #-}
+elements :: (Arrayed k, Arrayed v) => Int -> Int -> Array k -> Array v -> Entry k v
+elements i n ks vs = Entry i (G.unsafeHead ks) (G.unsafeHead vs) 1 n ks vs
+{-# INLINE elements #-}
 
 merges :: forall k v. (Ord k, Arrayed k, Arrayed v) => [Entry k v] -> Map k v -> Map k v
 merges [] m = m
 merges es m = runST $ do
   mv0   <- G.unsafeThaw (G.fromList es :: B.Vector (Entry k v))
-  let tally !acc 0 = return acc
-      tally !acc k = do
+  let nmv0 = BM.length mv0
+  let tally !acc k
+        | k == nmv0 = return acc
+        | otherwise = do
         Entry _ _ _ x y _ _ <- BM.unsafeRead mv0 k
-        tally (acc + y - x) k
-  r_max <- tally 0 (BM.length mv0-1)
+        tally (acc + 1 + y - x) (k+1)
+  r_max <- tally 0 0
   mks   <- GM.new r_max
   mvs   <- GM.new r_max
   let go mv li lk lo ln lks lvs lr
-        | GM.null mv = return lr
+        | GM.null mv = do
+          F.forM_ [lo..ln-1] $ \ i -> do
+            k <- G.unsafeIndexM lks i
+            v <- G.unsafeIndexM lvs i
+            let j = lr+i-lo
+            GM.unsafeWrite mks j k
+            GM.unsafeWrite mvs j v
+          return (lr+ln-lo)
         | otherwise = do
         Entry ni nk nv no nn nks nvs <- H.findMin mv
         let put r i k v
@@ -340,6 +354,10 @@ merges es m = runST $ do
   GM.unsafeWrite mks 0 lk
   GM.unsafeWrite mvs 0 lv
   r  <- go mv1 li lk o n ks vs 1
-  ks <- G.unsafeFreeze (GM.unsafeSlice 0 r mks)
-  vs <- G.unsafeFreeze (GM.unsafeSlice 0 r mvs)
-  return $ Map r ks vs m
+  if r == 1
+    then return $ One lk lv m
+    else do
+     zks <- G.unsafeFreeze (GM.unsafeSlice 0 r mks)
+     zvs <- G.unsafeFreeze (GM.unsafeSlice 0 r mvs)
+     return $ Map r zks zvs m
+{-# INLINE merges #-}
