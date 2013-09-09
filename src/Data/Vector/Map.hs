@@ -70,6 +70,7 @@ module Data.Vector.Map
   -- , insert6
   , fromDistinctAscList
   , fromList
+  , fromList4
   , shape
   , split
   , union
@@ -206,6 +207,11 @@ fromList :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromList xs = List.foldl' (\m (k,v) -> insert k v m) empty xs
 {-# INLINE fromList #-}
 
+fromList4 :: (Ord k, Arrayed k, Arrayed v, Show k, Show v, Show (Arr k k), Show (Arr v v)) => [(k,v)] -> Map k v
+fromList4 xs = List.foldl' (\m (k,v) -> insert4 k v m) empty xs
+{-# INLINE fromList4 #-}
+
+
 -- | Generates two legal maps from a source 'Map'. The asymptotic analysis is preserved if only one of these is updated.
 split :: (Ord k, Arrayed k, Arrayed v) => k -> Map k v -> (Map k v, Map k v)
 split k m0 = go m0 where
@@ -299,10 +305,12 @@ merges [] m = m
 merges es m = runST $ do
   -- Unsafe.unsafeIOToST $ print ("elements",es)
   mv0   <- G.unsafeThaw (G.fromList es :: B.Vector (Entry k v))
-  let tally !acc 0 = return (acc+1)
-      tally !acc k = do
+  let nmv0 = BM.length mv0
+  let tally !acc k
+        | k == nmv0 = return acc
+        | otherwise = do
         Entry _ _ _ x y _ _ <- BM.unsafeRead mv0 k
-        tally (acc + 1 + y - x) (k-1)
+        tally (acc + 1 + y - x) (k+1)
   r_max <- tally 0 (BM.length mv0-1)
   -- Unsafe.unsafeIOToST $ print ("r_max",r_max)
   mks   <- GM.new r_max -- big enough!
