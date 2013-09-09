@@ -1,13 +1,15 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Main where
 
 import Data.Foldable as F
-import Data.Vector.Map as V
 import Data.Map as M
+import Data.Maybe
+import Data.Vector.Map as V
+import Control.DeepSeq
 import Control.Monad.Random
 import Control.Monad
+import Criterion.Config
 import Criterion.Main
-import Control.DeepSeq
-import Data.Maybe
 
 instance NFData (V.Map k v)
 
@@ -31,7 +33,7 @@ main = do
     nfIO (return m100)
     nfIO (return v1000)
     nfIO (return m1000)
-    defaultMain
+    defaultMainWith defaultConfig { cfgSamples = ljust 10 } (return ())
       [ bench "COLA lookup 10k from 10k"      $ nf (lookupV v10)   10000
       , bench "Data.Map lookup 10k from 10k"  $ nf (lookupM m10)   10000
       , bench "COLA lookup 10k from 100k"     $ nf (lookupV v100)  10000
