@@ -86,6 +86,7 @@ library
     Data.Vector.Bloom
     Data.Vector.Bloom.Mutable
     Data.Vector.Bloom.Util
+    Data.Vector.Heap
     Data.Vector.Map
     Data.Vector.Map.Fusion
 
