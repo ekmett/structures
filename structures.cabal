@@ -200,7 +200,7 @@ test-suite doctests
 
 benchmark maps
   type:           exitcode-stdio-1.0
-  main-is:        misc.hs
+  main-is:        maps.hs
   ghc-options:    -Wall
   hs-source-dirs: benchmarks
 
