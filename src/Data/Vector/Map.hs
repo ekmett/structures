@@ -22,28 +22,32 @@
 -- Cache Oblivious Lookahead Array (COLA) by Bender et al. from
 -- <http://supertech.csail.mit.edu/papers/sbtree.pdf "Cache-Oblivious Streaming B-Trees">.
 --
--- When used ephemerally, this 'Map' has asymptotic performance equal to that
--- of a B-Tree tuned to the parameters of your caches. However, no such
--- parameter tuning is required.
---
 -- Currently this 'Map' is implemented in an insert-only fashion. Deletions are left to future work
 -- or to another derived structure in case they prove expensive.
---
--- Fractional cascading has been replaced with the use of a hierarchical bloom filter per level containing
--- the elements for that level, with the false positive rate tuned to balance the lookup cost against
--- the costs of the cache misses for a false positive at that depth. This avoids the need to collect
--- forwarding pointers from the next level, reducing pressure on the cache dramatically, while providing
--- the same asymptotic complexity.
 --
 -- Unlike the COLA, this version merely provides amortized complexity bounds as this permits us to
 -- provide a fully functional API. However, even those asymptotics are only guaranteed if you do not
 -- modify the \"old\" versions of the 'Map'. If you do, then while correctness is preserved, the
 -- asymptotic analysis becomes inaccurate.
 --
--- Reading from \"old\" versions of the 'Map' will not affect the asymptotic analysis, however.
+-- Reading from \"old\" versions of the 'Map' does not affect the asymptotic analysis and is fine.
+--
+-- Fractional cascading was originally replaced with the use of a hierarchical bloom filter per level containing
+-- the elements for that level, with the false positive rate tuned to balance the lookup cost against
+-- the costs of the cache misses for a false positive at that depth. This avoids the need to collect
+-- forwarding pointers from the next level, reducing pressure on the cache dramatically, while providing
+-- the same asymptotic complexity.
+--
+-- With either of these two techniques when used ephemerally, this 'Map' had asymptotic performance equal to that
+-- of a B-Tree tuned to the parameters of your caches with requiring such parameter tuning.
+--
+-- However, the constants were still bad enough that the naive /O(log^2 n)/ version of the COLA actually wins
+-- at lookups in benchmarks at the scale this data structure is interesting, say around a few million entries,
+-- by a factor of 10x! Consequently, we're currently not even Bloom filtering.
 --
 -- Compared to the venerable @Data.Map@, this data structure currently consumes more memory, but it
--- provides a more limited palette of operations in less time and enables us to utilize contiguous storage.
+-- provides a more limited palette of operations with different asymptotics (~10x faster inserts at a million entries)
+-- and enables us to utilize contiguous storage.
 --
 -- /NB:/ when used with boxed data this structure may hold onto references to old versions
 -- of things for many updates to come until sufficient operations have happened to merge them out
@@ -128,8 +132,9 @@ threshold n1 n2 = n1 > unsafeShiftR n2 1
 -- two :: (Arrayed k, Arrayed v) => k -> v -> k -> v -> Map k v -> Map k v
 -- three :: (Arrayed k, Arrayed v) => k -> v -> k -> v -> k -> v -> Map k v -> Map k v
 
+-- force a value as much as it would be forced by inserting it into an Array
 vseq :: forall a b. Arrayed a => a -> b -> b
-vseq a b = G.elemseq (undefined :: Arr a a) a b
+vseq a b = G.elemseq (undefined :: Array a) a b
 
 -- | /O(log n)/ ephemerally amortized, /O(n)/ worst case. Insert an element.
 insert :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
