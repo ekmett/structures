@@ -67,7 +67,7 @@ module Data.Vector.Map
   , lookup
   , insert
   , insert4
-  -- , insert6
+  , insertDistinctAscList
   , fromDistinctAscList
   , fromList
   , shape
@@ -167,9 +167,15 @@ fromDistinctAscList :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromDistinctAscList kvs = fromList kvs
 {-# INLINE fromDistinctAscList #-}
 
+insertDistinctAscList :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v -> Map k v
+insertDistinctAscList kvs m = case G.fromList kvs of
+  V_Pair n ks vs -> cons n ks vs m
+{-# INLINE insertDistinctAscList #-}
+
 insert4 :: forall k v. (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
-insert4 !k v (Map n1 ks1 vs1 (Map _  ks2 vs2
-             (Map _  ks3 vs3 (Map n4 ks4 vs4 m))))
+insert4 = insert
+{-
+insert4 !k v (Map n1 ks1 vs1 (Map _  ks2 vs2 (Map _  ks3 vs3 (Map n4 ks4 vs4 m))))
   | n1 > unsafeShiftR n4 2 = case va of
     V_Pair _ ksa vsa -> case vb of
       V_Pair _ ksb vsb -> case G.unstream $ zips ksa vsa `Fusion.merge` zips ksb vsb of
@@ -190,6 +196,7 @@ insert4 !ka va (One kb vb (One kc vc (One kd vd (One ke ve m)))) = case G.unstre
       EQ -> Stream.fromListN 1 [(kd,vd)]
       GT -> Stream.fromListN 2 [(ke,ve),(kd,vd)]
 insert4 k v m = One k v m
+-}
 {-# INLINABLE insert4 #-}
 
 fromList :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
@@ -293,8 +300,8 @@ merges es m = runST $ do
         Entry _ _ _ x y _ _ <- BM.unsafeRead mv0 k
         tally (acc + y - x) k
   r_max <- tally 0 (BM.length mv0-1)
-  mks   <- GM.new r_max -- big enough!
-  mvs   <- GM.new r_max -- big enough!
+  mks   <- GM.new r_max
+  mvs   <- GM.new r_max
   let go mv li lk lo ln lks lvs lr
         | GM.null mv = return lr
         | otherwise = do
