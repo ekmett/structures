@@ -307,11 +307,11 @@ merges es m = runST $ do
   mv0   <- G.unsafeThaw (G.fromList es :: B.Vector (Entry k v))
   let nmv0 = BM.length mv0
   let tally !acc k
-        | k == nmv0 = return acc
+        | k == nmv0 = return (acc+1)
         | otherwise = do
         Entry _ _ _ x y _ _ <- BM.unsafeRead mv0 k
         tally (acc + 1 + y - x) (k+1)
-  r_max <- tally 0 (BM.length mv0-1)
+  r_max <- tally 0 0
   -- Unsafe.unsafeIOToST $ print ("r_max",r_max)
   mks   <- GM.new r_max -- big enough!
   mvs   <- GM.new r_max -- big enough!
