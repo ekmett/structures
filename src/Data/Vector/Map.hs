@@ -138,7 +138,7 @@ threshold n1 n2 = n1 > unsafeShiftR n2 1
 vseq :: forall a b. Arrayed a => a -> b -> b
 vseq a b = G.elemseq (undefined :: Array a) a b
 
--- | /O((log N)/B)/ ephemerally amortized loads for each cache, /O(N/B)/ worst case. Insert an element.
+-- | O((log N)\/B) ephemerally amortized loads for each cache, O(N\/B) worst case. Insert an element.
 insert :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
 insert !k v (Map n1 ks1 vs1 (Map n2 ks2 vs2 m))
   | threshold n1 n2 = insert2 k v ks1 vs1 ks2 vs2 m
