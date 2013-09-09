@@ -288,7 +288,7 @@ merges es m = runST $ do
   mv0   <- G.unsafeThaw (G.fromList es :: B.Vector (Entry k v))
   let nmv0 = BM.length mv0
   let tally !acc k
-        | k == nmv0 = return (acc+1)
+        | k == nmv0 = return acc
         | otherwise = do
         Entry _ _ _ x y _ _ <- BM.unsafeRead mv0 k
         tally (acc + 1 + y - x) (k+1)
