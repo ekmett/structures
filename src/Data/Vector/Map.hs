@@ -75,9 +75,7 @@ module Data.Vector.Map
   , rebuild
   ) where
 
-import Control.Parallel
 import Data.Bits
-import Data.Hashable
 import qualified Data.List as List
 import Data.Vector.Array
 import Data.Vector.Fusion.Stream.Monadic (Stream(..))
@@ -117,7 +115,7 @@ singleton k v = v `vseq` One k v Nil
 {-# INLINE singleton #-}
 
 -- | /O(log n)/ persistently amortized, /O(n)/ worst case. Lookup an element.
-lookup :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> Map k v -> Maybe v
+lookup :: (Ord k, Arrayed k, Arrayed v) => k -> Map k v -> Maybe v
 lookup !k m0 = go m0 where
   {-# INLINE go #-}
   go Nil = Nothing
@@ -142,7 +140,7 @@ vseq :: forall a b. Arrayed a => a -> b -> b
 vseq a b = G.elemseq (undefined :: Array a) a b
 
 -- | /O(log n)/ ephemerally amortized, /O(n)/ worst case. Insert an element.
-insert :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
+insert :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
 insert !k v (Map n1 ks1 vs1 (Map n2 ks2 vs2 m))
   | threshold n1 n2 = insert2 k v ks1 vs1 ks2 vs2 m
 insert !ka va (One kb vb (One kc vc m)) = case G.unstream $ Fusion.insert ka va rest of
@@ -155,29 +153,26 @@ insert !ka va (One kb vb (One kc vc m)) = case G.unstream $ Fusion.insert ka va 
 insert k v m = v `vseq` One k v m
 {-# INLINABLE insert #-}
 
-insert2 :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Array k -> Array v -> Array k -> Array v -> Map k v -> Map k v
+insert2 :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Array k -> Array v -> Array k -> Array v -> Map k v -> Map k v
 insert2 k v ks1 vs1 ks2 vs2 m = case G.unstream $ Fusion.insert k v (zips ks1 vs1) `Fusion.merge` zips ks2 vs2 of
   V_Pair n ks3 vs3 -> Map n ks3 vs3 m
 {-# INLINE insert2 #-}
 
-fromDistinctAscList :: (Hashable k, Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
+fromDistinctAscList :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromDistinctAscList kvs = fromList kvs
 {-# INLINE fromDistinctAscList #-}
 
-insert4 :: forall k v. (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
+insert4 :: forall k v. (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
 insert4 !k v (Map n1 ks1 vs1 (Map _  ks2 vs2
              (Map _  ks3 vs3 (Map n4 ks4 vs4 m))))
-  | n1 > unsafeShiftR n4 2 = spawn $ case va of
-    V_Pair na ksa vsa -> case vb of
-      V_Pair nb ksb vsb -> case G.unstream $ zips ksa vsa `Fusion.merge` zips ksb vsb of
+  | n1 > unsafeShiftR n4 2 = case va of
+    V_Pair _ ksa vsa -> case vb of
+      V_Pair _ ksb vsb -> case G.unstream $ zips ksa vsa `Fusion.merge` zips ksb vsb of
         V_Pair nc ksc vsc -> Map nc ksc vsc m
   where va :: V_Pair (k,v)
         va = G.unstream $ Fusion.insert k v (zips ks1 vs1) `Fusion.merge` zips ks2 vs2
         vb :: V_Pair (k,v)
         vb = G.unstream $ zips ks3 vs3 `Fusion.merge` zips ks4 vs4
-        spawn xs
-          | n1 <= 1000 = xs
-          | otherwise  = vb `par` va `pseq` xs
 insert4 !ka va (One kb vb (One kc vc (One kd vd (One ke ve m)))) = case G.unstream $ Fusion.insert ka va s1 `Fusion.merge` s2 of
     V_Pair n ks vs -> Map n ks vs m
   where
@@ -192,11 +187,11 @@ insert4 !ka va (One kb vb (One kc vc (One kd vd (One ke ve m)))) = case G.unstre
 insert4 k v m = One k v m
 {-# INLINABLE insert4 #-}
 
-fromList :: (Hashable k, Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
+fromList :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromList xs = List.foldl' (\m (k,v) -> insert k v m) empty xs
 {-# INLINE fromList #-}
 
-split :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> Map k v -> (Map k v, Map k v)
+split :: (Ord k, Arrayed k, Arrayed v) => k -> Map k v -> (Map k v, Map k v)
 split k m0 = go m0 where
   go Nil = (Nil, Nil)
   go (One j a m) = case go m of
@@ -214,7 +209,7 @@ split k m0 = go m0 where
 
 -- | This trashes size invariants and inherently uses the structure twice, so asymptotic analysis if you
 -- continue to edit this structure will be hard, but it can still be used for reads efficiently.
-split' :: (Hashable k, Ord k, Arrayed k, Arrayed v) => k -> Map k v -> (Map k v, Map k v)
+split' :: (Ord k, Arrayed k, Arrayed v) => k -> Map k v -> (Map k v, Map k v)
 split' k m0 = go m0 where
   go Nil = (Nil, Nil)
   go (One j a m) = case go m of
@@ -230,7 +225,7 @@ split' k m0 = go m0 where
       where j = search (\i -> ks G.! i >= k) 0 n
 {-# INLINE split' #-}
 
-union :: (Hashable k, Ord k, Arrayed k, Arrayed v) => Map k v -> Map k v -> Map k v
+union :: (Ord k, Arrayed k, Arrayed v) => Map k v -> Map k v -> Map k v
 union ys0 xs = go ys0 where
   go Nil = xs
   go (One k v m) = insert k v (go m)
@@ -250,7 +245,7 @@ search p = go where
           m = l + unsafeShiftR hml 1 + unsafeShiftR hml 6
 {-# INLINE search #-}
 
-cons :: (Hashable k, Ord k, Arrayed k, Arrayed v) => Int -> Array k -> Array v -> Map k v -> Map k v
+cons :: (Ord k, Arrayed k, Arrayed v) => Int -> Array k -> Array v -> Map k v -> Map k v
 cons 0 _  _  m = m
 cons 1 ks vs m = insert (G.unsafeHead ks) (G.unsafeHead vs) m
 cons n ks vs (Map n2 ks' vs' m)
@@ -265,7 +260,7 @@ cons n ks vs m = Map n ks vs m
 {-# INLINABLE cons #-}
 
 -- | If using have trashed our size invariants we can use this to restore them
-rebuild :: (Hashable k, Ord k, Arrayed k, Arrayed v) => Map k v -> Map k v
+rebuild :: (Ord k, Arrayed k, Arrayed v) => Map k v -> Map k v
 rebuild Nil = Nil
 rebuild (One k v m) = insert k v m
 rebuild (Map n ks vs m) = cons n ks vs (rebuild m)
