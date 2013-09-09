@@ -77,13 +77,19 @@ module Data.Vector.Map
   , rebuild
   ) where
 
+import Control.Monad.ST
 import Data.Bits
 import qualified Data.List as List
+import Data.Monoid
+import qualified Data.Vector.Heap as H
+import qualified Data.Vector as B
+import qualified Data.Vector.Mutable as BM
 import Data.Vector.Array
 import Data.Vector.Fusion.Stream.Monadic (Stream(..))
 import qualified Data.Vector.Fusion.Stream.Monadic as Stream
 import Data.Vector.Fusion.Util
 import qualified Data.Vector.Generic as G
+import qualified Data.Vector.Generic.Mutable as GM
 import qualified Data.Vector.Map.Fusion as Fusion
 import Prelude hiding (null, lookup)
 
@@ -256,3 +262,77 @@ shape :: Map k v -> [Int]
 shape Nil           = []
 shape (One _ _ m)   = 1 : shape m
 shape (Map n _ _ m) = n : shape m
+
+-- * Merging
+
+data Entry k v = Entry {-# UNPACK #-} !Int !k v {-# UNPACK #-} !Int {-# UNPACK #-} !Int !(Array k) !(Array v)
+
+deriving instance (Show (Arr v v), Show (Arr k k), Show k, Show v) => Show (Entry k v)
+deriving instance (Read (Arr v v), Read (Arr k k), Read k, Read v) => Read (Entry k v)
+
+instance Eq k => Eq (Entry k v) where
+  Entry i ki _ _ _ _ _ == Entry j kj _ _ _ _ _ = i == j && ki == kj
+
+instance Ord k => Ord (Entry k v) where
+  compare (Entry i ki _ _ _ _ _) (Entry j kj _ _ _ _ _) = compare ki kj `mappend` compare i j
+
+element :: (Arrayed k, Arrayed v) => Int -> k -> v -> Entry k v
+element i k v = Entry i k v 0 0 G.empty G.empty
+{-# INLINE element #-}
+
+entry :: (Arrayed k, Arrayed v) => Int -> Array k -> Array v -> Entry k v
+entry i ks vs = Entry i (G.unsafeHead ks) (G.unsafeHead vs) 1 (G.length ks) ks vs
+{-# INLINE entry #-}
+
+merges :: forall k v. (Ord k, Arrayed k, Arrayed v) => [Entry k v] -> Map k v -> Map k v
+merges [] m = m
+merges es m = runST $ do
+  mv0   <- G.unsafeThaw (G.fromList es :: B.Vector (Entry k v))
+  let tally !acc 0 = return acc
+      tally !acc k = do
+        Entry _ _ _ x y _ _ <- BM.unsafeRead mv0 k
+        tally (acc + y - x) k
+  r_max <- tally 0 (BM.length mv0-1)
+  mks   <- GM.new r_max -- big enough!
+  mvs   <- GM.new r_max -- big enough!
+  let go mv li lk lo ln lks lvs lr
+        | GM.null mv = return lr
+        | otherwise = do
+        Entry ni nk nv no nn nks nvs <- H.findMin mv
+        let put r i k v
+              | k == lk && i > li = return r
+              | otherwise = do
+                GM.unsafeWrite mks r k
+                GM.unsafeWrite mvs r v
+                return (r + 1)
+            run r o
+              | o == ln = do
+                mv' <- H.deleteMin mv
+                nr  <- put r ni nk nv
+                go mv' ni nk no nn nks nvs nr
+              | otherwise = do
+                k <- G.unsafeIndexM lks o
+                v <- G.unsafeIndexM lvs o
+                case compare k nk of
+                  LT -> do
+                    GM.unsafeWrite mks r k
+                    GM.unsafeWrite mvs r v
+                    run (r+1) (o+1)
+                  EQ | li < ni -> do
+                    GM.unsafeWrite mks r k
+                    GM.unsafeWrite mvs r v
+                    run (r+1) (o+1)
+                  _ -> do
+                    H.updateMin (Entry li k v (o+1) ln lks lvs) mv
+                    nr <- put r ni nk nv
+                    go mv ni nk no nn nks nvs nr
+        run lr lo
+  H.heapify mv0
+  Entry li lk lv o n ks vs <- H.findMin mv0
+  mv1 <- H.deleteMin mv0
+  GM.unsafeWrite mks 0 lk
+  GM.unsafeWrite mvs 0 lv
+  r  <- go mv1 li lk o n ks vs 1
+  ks <- G.unsafeFreeze (GM.unsafeSlice 0 r mks)
+  vs <- G.unsafeFreeze (GM.unsafeSlice 0 r mvs)
+  return $ Map r ks vs m
