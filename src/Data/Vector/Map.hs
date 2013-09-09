@@ -79,6 +79,7 @@ module Data.Vector.Map
 
 import Control.Monad.ST
 import Data.Bits
+import qualified Data.Foldable as F
 import qualified Data.List as List
 import Data.Monoid
 import qualified Data.Vector.Heap as H
@@ -168,6 +169,15 @@ fromDistinctAscList kvs = fromList kvs
 {-# INLINE fromDistinctAscList #-}
 
 insert4 :: forall k v. (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
+insert4 !k v (Map n1 ks1 vs1 (Map n2 ks2 vs2 m))
+  | threshold n1 n2 = insert2 k v ks1 vs1 ks2 vs2 m
+
+--insert4 !k v (Map n1 ks1 vs1 (Map n2 ks2 vs2 m))
+--  | threshold n1 n2 = merges [element 0 k v, elements 1 n1 ks1 vs1, elements 2 n2 ks2 vs2] m
+insert4 !ka va (One kb vb (One kc vc m)) = merges [element 0 ka va, element 1 kb vb, element 3 kc vc] m
+insert4 k v m = v `vseq` One k v m
+{-# INLINABLE insert4 #-}
+{-
 insert4 !k v (Map n1 ks1 vs1 (Map _  ks2 vs2
              (Map _  ks3 vs3 (Map n4 ks4 vs4 m))))
   | n1 > unsafeShiftR n4 2 = case va of
@@ -189,8 +199,8 @@ insert4 !ka va (One kb vb (One kc vc (One kd vd (One ke ve m)))) = case G.unstre
       LT -> Stream.fromListN 2 [(kd,vd),(ke,ve)]
       EQ -> Stream.fromListN 1 [(kd,vd)]
       GT -> Stream.fromListN 2 [(ke,ve),(kd,vd)]
-insert4 k v m = One k v m
-{-# INLINABLE insert4 #-}
+insert4 k v m = v `vseq` One k v m
+-}
 
 fromList :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromList xs = List.foldl' (\m (k,v) -> insert k v m) empty xs
@@ -265,7 +275,7 @@ shape (Map n _ _ m) = n : shape m
 
 -- * Merging
 
-data Entry k v = Entry {-# UNPACK #-} !Int !k v {-# UNPACK #-} !Int {-# UNPACK #-} !Int !(Array k) !(Array v)
+data Entry k v = Entry {-# UNPACK #-} !Int !k v {-# UNPACK #-} !Int {-# UNPACK #-} !Int (Array k) (Array v)
 
 deriving instance (Show (Arr v v), Show (Arr k k), Show k, Show v) => Show (Entry k v)
 deriving instance (Read (Arr v v), Read (Arr k k), Read k, Read v) => Read (Entry k v)
@@ -277,12 +287,12 @@ instance Ord k => Ord (Entry k v) where
   compare (Entry i ki _ _ _ _ _) (Entry j kj _ _ _ _ _) = compare ki kj `mappend` compare i j
 
 element :: (Arrayed k, Arrayed v) => Int -> k -> v -> Entry k v
-element i k v = Entry i k v 0 0 G.empty G.empty
+element i k v = Entry i k v 0 0 (error "BAD") (error "VERY BAD")
 {-# INLINE element #-}
 
-entry :: (Arrayed k, Arrayed v) => Int -> Array k -> Array v -> Entry k v
-entry i ks vs = Entry i (G.unsafeHead ks) (G.unsafeHead vs) 1 (G.length ks) ks vs
-{-# INLINE entry #-}
+elements :: (Arrayed k, Arrayed v) => Int -> Int -> Array k -> Array v -> Entry k v
+elements i n ks vs = Entry i (G.unsafeHead ks) (G.unsafeHead vs) 1 n ks vs
+{-# INLINE elements #-}
 
 merges :: forall k v. (Ord k, Arrayed k, Arrayed v) => [Entry k v] -> Map k v -> Map k v
 merges [] m = m
@@ -296,7 +306,14 @@ merges es m = runST $ do
   mks   <- GM.new r_max -- big enough!
   mvs   <- GM.new r_max -- big enough!
   let go mv li lk lo ln lks lvs lr
-        | GM.null mv = return lr
+        | GM.null mv = do
+          F.forM_ [lo..ln] $ \ i -> do
+            k <- G.unsafeIndexM lks i
+            v <- G.unsafeIndexM lvs i
+            let j = lr+i-lo
+            GM.unsafeWrite mks j k
+            GM.unsafeWrite mvs j v
+          return (lr+ln-lo)
         | otherwise = do
         Entry ni nk nv no nn nks nvs <- H.findMin mv
         let put r i k v
@@ -333,6 +350,6 @@ merges es m = runST $ do
   GM.unsafeWrite mks 0 lk
   GM.unsafeWrite mvs 0 lv
   r  <- go mv1 li lk o n ks vs 1
-  ks <- G.unsafeFreeze (GM.unsafeSlice 0 r mks)
-  vs <- G.unsafeFreeze (GM.unsafeSlice 0 r mvs)
-  return $ Map r ks vs m
+  zks <- G.unsafeFreeze (GM.unsafeSlice 0 r mks)
+  zvs <- G.unsafeFreeze (GM.unsafeSlice 0 r mvs)
+  return $ Map r zks zvs m
