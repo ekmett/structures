@@ -68,7 +68,7 @@ library
     contravariant     >= 0.4.2 && < 1,
     deepseq           >= 1.1   && < 1.4,
     ghc-prim,
-    hashable          >= 1.2   && < 1.3,
+    hashable          >= 1.2.1 && < 1.3,
     hybrid-vectors    >= 0.1   && < 1,
     lens              >= 3.9   && < 4,
     parallel          >= 3.2   && < 3.3,
@@ -194,7 +194,8 @@ test-suite doctests
       deepseq,
       doctest        >= 0.9.1,
       filepath,
-      semigroups     >= 0.9
+      semigroups     >= 0.9,
+      unordered-containers
 
   if impl(ghc<7.6.1)
     ghc-options: -Werror
@@ -221,6 +222,7 @@ benchmark maps
     criterion,
     mwc-random,
     structures,
+    unordered-containers,
     vector
 
 benchmark lookups
@@ -246,6 +248,7 @@ benchmark lookups
     deepseq,
     MonadRandom,
     structures,
+    unordered-containers,
     vector
 
 benchmark inserts
@@ -271,4 +274,5 @@ benchmark inserts
     deepseq,
     MonadRandom,
     structures,
+    unordered-containers,
     vector

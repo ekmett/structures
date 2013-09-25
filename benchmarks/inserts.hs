@@ -3,6 +3,7 @@ module Main where
 
 import Data.Foldable as F
 import Data.Map as M
+import Data.HashMap.Strict as H
 import Data.Vector.Map as V
 import Control.DeepSeq
 import Control.Monad.Random
@@ -30,24 +31,27 @@ fromAsc n = V.fromDistinctAscList $ Prelude.map (\x -> (x,x)) [0..n]
 buildM :: Int -> M.Map Int Int
 buildM n = F.foldl' (flip (join M.insert)) M.empty $ take n $ randoms (mkStdGen 1)
 
+buildH :: Int -> H.HashMap Int Int
+buildH n = F.foldl' (flip (join H.insert)) H.empty $ take n $ randoms (mkStdGen 1)
+
 main :: IO ()
 main = defaultMainWith defaultConfig { cfgSamples = ljust 10 } (return ())
   [ bench "COLA insert 10k"               $ nf buildV    10000
-  , bench "COLA insert4 10k"     $ nf build4 10000
---  , bench "COLA insert6 10k"     $ nf build6 10000
-  , bench "COLA fromDistinctAscList 10k"  $ nf fromAsc   10000
+  , bench "COLA insert4 10k"              $ nf build4 10000
+  , bench "COLA fromDistinctAscList 10k"  $ nf fromAsc 10000
   , bench "COLA fromList 10k"             $ nf fromListV 10000
-  , bench "Data.Map insert 10k"           $ nf buildM    10000
-  , bench "COLA insert 100k"              $ nf buildV    100000
+  , bench "Data.Map insert 10k"           $ nf buildM 10000
+  , bench "Data.HashMap insert 10k"       $ nf buildH 10000
+  , bench "COLA insert 100k"              $ nf buildV 100000
   , bench "COLA insert4 100k"    $ nf build4 100000
---  , bench "COLA insert6 100k"    $ nf build6 100000
-  , bench "COLA fromDistinctAscList 100k" $ nf fromAsc   100000
+  , bench "COLA fromDistinctAscList 100k" $ nf fromAsc 100000
   , bench "COLA fromList 100k"            $ nf fromListV 100000
-  , bench "Data.Map insert 100k"          $ nf buildM    100000
-  , bench "COLA insert 1m"                $ nf buildV    1000000
+  , bench "Data.Map insert 100k"          $ nf buildM 100000
+  , bench "Data.HashMap insert 100k"      $ nf buildH 100000
+  , bench "COLA insert 1m"                $ nf buildV 1000000
   , bench "COLA insert4 1m"      $ nf build4 1000000
---  , bench "COLA insert6 1m"      $ nf build6 1000000
-  , bench "COLA fromDistinctAscList 1m"   $ nf fromAsc   1000000
+  , bench "COLA fromDistinctAscList 1m"   $ nf fromAsc 1000000
   , bench "COLA fromList 1m"              $ nf fromListV 1000000
-  , bench "Data.Map insert 1m"            $ nf buildM    1000000
+  , bench "Data.Map insert 1m"            $ nf buildM 1000000
+  , bench "Data.HashMap insert 1m"        $ nf buildH 1000000
   ]
