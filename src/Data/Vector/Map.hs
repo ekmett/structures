@@ -67,7 +67,6 @@ module Data.Vector.Map
   , lookup
   , insert
   , fromList
-  , shape
   ) where
 
 import Data.Bits
@@ -82,12 +81,8 @@ import Prelude hiding (null, lookup)
 
 #define BOUNDS_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Bounds)
 
--- | This Map is implemented as an insert-only Cache Oblivious Lookahead Array (COLA) with amortized complexity bounds
--- that are equal to those of a B-Tree when it is used ephemerally, using Bloom filters to replace the fractional
--- cascade.
 data Map k v
   = Nil
-  | One !k v !(Map k v)
   | Map !Int !(Array k) !(Array v) !(Map k v)
 
 deriving instance (Show (Arr v v), Show (Arr k k), Show k, Show v) => Show (Map k v)
@@ -105,8 +100,8 @@ empty = Nil
 {-# INLINE empty #-}
 
 -- | /O(1)/ Construct a 'Map' from a single key/value pair.
-singleton :: Arrayed v => k -> v -> Map k v
-singleton k v = v `vseq` One k v Nil
+singleton :: (Arrayed k, Arrayed v) => k -> v -> Map k v
+singleton k v = Map 1 (G.singleton k) (G.singleton v) Nil
 {-# INLINE singleton #-}
 
 -- | /O(log^2 N)/ persistently amortized, /O(N)/ worst case. Lookup an element.
@@ -114,9 +109,6 @@ lookup :: (Ord k, Arrayed k, Arrayed v) => k -> Map k v -> Maybe v
 lookup !k m0 = go m0 where
   {-# INLINE go #-}
   go Nil = Nothing
-  go (One i a m)
-    | k == i    = Just a
-    | otherwise = go m
   go (Map n ks vs m)
     | j <- search (\i -> ks G.! i >= k) 0 (n-1)
     , ks G.! j == k = Just $ vs G.! j
@@ -127,32 +119,16 @@ threshold :: Int -> Int -> Bool
 threshold n1 n2 = n1 > unsafeShiftR n2 1
 {-# INLINE threshold #-}
 
--- force a value as much as it would be forced by inserting it into an Array
-vseq :: forall a b. Arrayed a => a -> b -> b
-vseq a b = G.elemseq (undefined :: Array a) a b
-{-# INLINE vseq #-}
-
 -- | O((log N)\/B) ephemerally amortized loads for each cache, O(N\/B) worst case. Insert an element.
 insert :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
 insert !k v (Map n1 ks1 vs1 (Map n2 ks2 vs2 m))
-  | threshold n1 n2 = insert2 k v ks1 vs1 ks2 vs2 m
-insert !ka va (One kb vb (One kc vc m)) = case G.unstream $ Fusion.insert ka va rest of
-    V_Pair n ks vs -> Map n ks vs m
-  where
-    rest = case compare kb kc of
-      LT -> Stream.fromListN 2 [(kb,vb),(kc,vc)]
-      EQ -> Stream.fromListN 1 [(kb,vb)]
-      GT -> Stream.fromListN 2 [(kc,vc),(kb,vb)]
-insert k v m = v `vseq` One k v m
+  | threshold n1 n2 = case G.unstream $ Fusion.insert k v (zips ks1 vs1) `Fusion.merge` zips ks2 vs2 of
+  V_Pair n ks3 vs3 -> Map n ks3 vs3 m
+insert k v m = Map 1 (G.singleton k) (G.singleton v) m
 {-# INLINABLE insert #-}
 
-insert2 :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Array k -> Array v -> Array k -> Array v -> Map k v -> Map k v
-insert2 k v ks1 vs1 ks2 vs2 m = case G.unstream $ Fusion.insert k v (zips ks1 vs1) `Fusion.merge` zips ks2 vs2 of
-  V_Pair n ks3 vs3 -> Map n ks3 vs3 m
-{-# INLINE insert2 #-}
-
 fromList :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
-fromList xs = List.foldl' (\m (k,v) -> insert k v m) empty xs
+fromList = List.foldl' (\m (k,v) -> insert k v m) empty
 {-# INLINE fromList #-}
 
 -- | Offset binary search
@@ -171,10 +147,3 @@ search p = go where
 zips :: (G.Vector v a, G.Vector u b) => v a -> u b -> Stream Id (a, b)
 zips va ub = Stream.zip (G.stream va) (G.stream ub)
 {-# INLINE zips #-}
-
--- * Debugging
-
-shape :: Map k v -> [Int]
-shape Nil           = []
-shape (One _ _ m)   = 1 : shape m
-shape (Map n _ _ m) = n : shape m
