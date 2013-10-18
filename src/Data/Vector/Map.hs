@@ -70,19 +70,13 @@ module Data.Vector.Map
   , shape
   ) where
 
-import Control.Monad.ST
 import Data.Bits
-import qualified Data.Foldable as F
 import qualified Data.List as List
-import Data.Monoid
-import qualified Data.Vector as B
-import qualified Data.Vector.Mutable as BM
 import Data.Vector.Array
 import Data.Vector.Fusion.Stream.Monadic (Stream(..))
 import qualified Data.Vector.Fusion.Stream.Monadic as Stream
 import Data.Vector.Fusion.Util
 import qualified Data.Vector.Generic as G
-import qualified Data.Vector.Generic.Mutable as GM
 import qualified Data.Vector.Map.Fusion as Fusion
 import Prelude hiding (null, lookup)
 
