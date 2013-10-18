@@ -22,8 +22,7 @@ extra-source-files:
   README.markdown
 
 description:
-  This package is a playground for working with several types of advanced data structures including
-  wavelet trees and cache oblivious lookahead arrays.
+  This package is a playground
 
 source-repository head
   type: git
