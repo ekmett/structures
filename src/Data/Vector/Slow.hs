@@ -9,7 +9,7 @@
 
 module Data.Vector.Slow
   ( Slow(..)
-  , charge
+  , yield
   , Partial(..)
   , walkST
   , munstream
@@ -41,8 +41,8 @@ data SPEC = SPEC | SPEC2
 
 data Slow m a = Slow { runSlow :: forall r. (a -> r) -> (r -> r) -> (m r -> r) -> r }
 
-charge :: Slow m ()
-charge = Slow $ \kp kd _ -> kd $ kp ()
+yield :: Slow m ()
+yield = Slow $ \kp kd _ -> kd $ kp ()
 
 instance Functor (Slow m) where
   fmap f (Slow g) = Slow $ \kp -> g (kp . f)
@@ -116,7 +116,7 @@ foldM' m z0 (M.Stream step s0 _) = foldM'_loop SPEC z0 s0
         do
           r <- lift (step s)
           case r of
-            M.Yield x s' -> do { z' <- lift (m z x); charge; foldM'_loop SPEC z' s' }
+            M.Yield x s' -> do { z' <- lift (m z x); yield; foldM'_loop SPEC z' s' }
             M.Skip    s' -> foldM'_loop SPEC z s'
             M.Done       -> return z
 {-# INLINE [1] foldM' #-}
@@ -129,7 +129,7 @@ foldM m z0 (M.Stream step s0 _) = foldM_loop SPEC z0 s0
       = do
           r <- lift (step s)
           case r of
-            M.Yield x s' -> do { z' <- lift (m z x); charge; foldM_loop SPEC z' s' }
+            M.Yield x s' -> do { z' <- lift (m z x); yield; foldM_loop SPEC z' s' }
             M.Skip    s' -> foldM_loop SPEC z s'
             M.Done       -> return z
 {-# INLINE [1] foldM #-}
