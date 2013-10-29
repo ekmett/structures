@@ -31,6 +31,7 @@ import qualified Data.Vector.Fusion.Stream.Size as SS
 import Data.Vector.Internal.Check as Ck
 import qualified Data.Vector.Generic as G
 import qualified Data.Vector.Generic.Mutable as GM
+import System.IO.Unsafe as Unsafe
 
 import SpecConstr ( SpecConstrAnnotation(..) )
 data SPEC = SPEC | SPEC2
@@ -92,10 +93,16 @@ instance MonadFree Identity Partial where
   {-# INLINE wrap #-}
 
 walkST :: (forall s. Slow (ST s) a) -> Partial a
-walkST l = runST $ runSlow l (return . Stop) (fmap Step) $ \m -> do
-  n <- Unsafe.unsafeInterleaveST m
-  o <- Unsafe.unsafeInterleaveST n
-  return o
+walkST l = runSlow l Stop Step (Unsafe.unsafePerformIO . Unsafe.unsafeSTToIO)
+
+-- While this definition on paper makes more sense than the version above, GHC doesn't currently
+-- attempt to use 'noDuplicate' in 'Unsafe.unsafeInterleaveST', rendering this unduly dangerous
+-- unless we make all effects we want to Slow idempotent!
+--
+-- > walkST l = runST $ runSlow l (return . Stop) (fmap Step) $ \m -> do
+-- >  n <- Unsafe.unsafeInterleaveST m
+-- >  o <- Unsafe.unsafeInterleaveST n
+-- >  return o
 {-# INLINE walkST #-}
 
 unstreamM :: (G.Vector v a, PrimMonad m) => M.Stream m a -> Slow m (v a)
