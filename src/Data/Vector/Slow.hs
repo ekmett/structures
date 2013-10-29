@@ -5,7 +5,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# OPTIONS_GHC -Wall #-}
+{-# OPTIONS_GHC -fno-warn-unused-matches -fno-warn-unused-binds #-}
 
 module Data.Vector.Slow
   ( Slow(..)
@@ -33,7 +33,7 @@ import qualified Data.Vector.Generic as G
 import qualified Data.Vector.Generic.Mutable as GM
 
 import SpecConstr ( SpecConstrAnnotation(..) )
-data SPEC = SPEC -- | SPEC2
+data SPEC = SPEC | SPEC2
 {-# ANN type SPEC ForceSpecConstr #-}
 
 #define BOUNDS_CHECK(f)   (Ck.f __FILE__ __LINE__ Ck.Bounds)
