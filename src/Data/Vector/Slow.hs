@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE RankNTypes  #-}
 {-# LANGUAGE Trustworthy #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -21,11 +22,12 @@ module Data.Vector.Slow
 import Control.Applicative
 import Control.Monad hiding (foldM)
 import Control.Monad.Free
-import Control.Monad.Primitive
 import Control.Monad.ST
+import Control.Monad.ST.Class
 import Control.Monad.ST.Unsafe as Unsafe
-import Control.Monad.Trans.Class
+import Data.Foldable
 import Data.Functor.Identity
+import Data.Traversable
 import qualified Data.Vector.Fusion.Stream.Monadic as M
 import qualified Data.Vector.Fusion.Stream.Size as SS
 import Data.Vector.Internal.Check as Ck
@@ -40,32 +42,33 @@ data SPEC = SPEC | SPEC2
 #define BOUNDS_CHECK(f)   (Ck.f __FILE__ __LINE__ Ck.Bounds)
 #define INTERNAL_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Internal)
 
-data Slow m a = Slow { runSlow :: forall r. (a -> r) -> (r -> r) -> (m r -> r) -> r }
+data Slow s a = Slow { runSlow :: forall r. (a -> r) -> (r -> r) -> (ST s r -> r) -> r }
 
-yield :: Slow m ()
+yield :: Slow s ()
 yield = Slow $ \kp kd _ -> kd $ kp ()
 
-instance Functor (Slow m) where
+instance Functor (Slow s) where
   fmap f (Slow g) = Slow $ \kp -> g (kp . f)
   {-# INLINE fmap #-}
 
-instance Applicative (Slow m) where
+instance Applicative (Slow s) where
   pure a = Slow $ \kp _ _ -> kp a
   {-# INLINE pure #-}
   mf <*> ma = Slow $ \kp kd kf -> runSlow mf (\f -> runSlow ma (\a -> kp (f a)) kd kf) kd kf
   {-# INLINE (<*>) #-}
 
-instance Monad (Slow m) where
+instance Monad (Slow s) where
   return a = Slow $ \kp _ _ -> kp a
   {-# INLINE return #-}
   m >>= f = Slow $ \kp kd kf -> runSlow m (\a -> runSlow (f a) kp kd kf) kd kf
   {-# INLINE (>>=) #-}
 
-instance MonadTrans Slow where
-  lift f = Slow $ \kp _ kf -> kf (liftM kp f)
+instance MonadST (Slow s) where
+  type World (Slow s) = s
+  liftST f = Slow $ \kp _ kf -> kf (liftM kp f)
 
-instance Monad m => MonadFree m (Slow m) where
-  wrap f = Slow $ \kp kd kf -> kf (liftM (\m -> runSlow m kp kd kf) f)
+instance MonadFree (ST s) (Slow s) where
+  wrap f = Slow $ \kp kd kf -> kf (fmap (\m -> runSlow m kp kd kf) f)
   {-# INLINE wrap #-}
 
 data Partial a
@@ -92,7 +95,19 @@ instance MonadFree Identity Partial where
   wrap = Step . runIdentity
   {-# INLINE wrap #-}
 
-walkST :: (forall s. Slow (ST s) a) -> Partial a
+instance Foldable Partial where
+  foldMap f = go where
+    go (Stop a) = f a
+    go (Step m) = go m
+  {-# INLINE foldMap #-}
+
+instance Traversable Partial where
+  traverse f = go where
+    go (Stop a) = Stop <$> f a
+    go (Step m) = Step <$> go m
+  {-# INLINE traverse #-}
+
+walkST :: (forall s. Slow s a) -> Partial a
 walkST l = runSlow l Stop Step (Unsafe.unsafePerformIO . Unsafe.unsafeSTToIO)
 
 -- While this definition on paper makes more sense than the version above, GHC doesn't currently
@@ -105,47 +120,47 @@ walkST l = runSlow l Stop Step (Unsafe.unsafePerformIO . Unsafe.unsafeSTToIO)
 -- >  return o
 {-# INLINE walkST #-}
 
-unstreamM :: (G.Vector v a, PrimMonad m) => M.Stream m a -> Slow m (v a)
-unstreamM s = munstream s >>= lift . G.unsafeFreeze
+unstreamM :: G.Vector v a => M.Stream (ST s) a -> Slow s (v a)
+unstreamM s = munstream s >>= liftST . G.unsafeFreeze
 
-munstream :: (PrimMonad m, GM.MVector v a) => M.Stream m a -> Slow m (v (PrimState m) a)
+munstream :: GM.MVector v a => M.Stream (ST s) a -> Slow s (v s a)
 munstream s = case SS.upperBound (M.size s) of
   Just n  -> munstreamMax     s n
   Nothing -> munstreamUnknown s
 {-# INLINE [1] munstream #-}
 
 -- pay once per entry
-foldM' :: Monad m => (a -> b -> m a) -> a -> M.Stream m b -> Slow m a
+foldM' :: (a -> b -> ST s a) -> a -> M.Stream (ST s) b -> Slow s a
 foldM' m z0 (M.Stream step s0 _) = foldM'_loop SPEC z0 s0
   where
     foldM'_loop !_SPEC z s
       = z `seq`
         do
-          r <- lift (step s)
+          r <- liftST (step s)
           case r of
-            M.Yield x s' -> do { z' <- lift (m z x); yield; foldM'_loop SPEC z' s' }
+            M.Yield x s' -> do { z' <- liftST (m z x); yield; foldM'_loop SPEC z' s' }
             M.Skip    s' -> foldM'_loop SPEC z s'
             M.Done       -> return z
 {-# INLINE [1] foldM' #-}
 
 -- | Left fold with a monadic operator
-foldM :: Monad m => (a -> b -> m a) -> a -> M.Stream m b -> Slow m a
+foldM :: (a -> b -> ST s a) -> a -> M.Stream (ST s) b -> Slow s a
 foldM m z0 (M.Stream step s0 _) = foldM_loop SPEC z0 s0
   where
     foldM_loop !_SPEC z s
       = do
-          r <- lift (step s)
+          r <- liftST (step s)
           case r of
-            M.Yield x s' -> do { z' <- lift (m z x); yield; foldM_loop SPEC z' s' }
+            M.Yield x s' -> do { z' <- liftST (m z x); yield; foldM_loop SPEC z' s' }
             M.Skip    s' -> foldM_loop SPEC z s'
             M.Done       -> return z
 {-# INLINE [1] foldM #-}
 
 
-munstreamMax :: (PrimMonad m, GM.MVector v a) => M.Stream m a -> Int -> Slow m (v (PrimState m) a)
+munstreamMax :: GM.MVector v a => M.Stream (ST s) a -> Int -> Slow s (v s a)
 munstreamMax s n = do
   v <- INTERNAL_CHECK(checkLength) "munstreamMax" n
-       $ lift (GM.unsafeNew n)
+       $ liftST (GM.unsafeNew n)
   let put i x = do
                    INTERNAL_CHECK(checkIndex) "munstreamMax" i n
                      $ GM.unsafeWrite v i x
@@ -155,9 +170,9 @@ munstreamMax s n = do
          $ GM.unsafeSlice 0 n' v
 {-# INLINE munstreamMax #-}
 
-munstreamUnknown :: (PrimMonad m, GM.MVector v a) => M.Stream m a -> Slow m (v (PrimState m) a)
+munstreamUnknown :: GM.MVector v a => M.Stream (ST s) a -> Slow s (v s a)
 munstreamUnknown s = do
-  v <- lift (GM.unsafeNew 0)
+  v <- liftST (GM.unsafeNew 0)
   (v', n) <- foldM put (v, 0) s
   return $ INTERNAL_CHECK(checkSlice) "munstreamUnknown" 0 n (GM.length v')
          $ GM.unsafeSlice 0 n v'
@@ -168,7 +183,7 @@ munstreamUnknown s = do
       return (v',i+1)
 {-# INLINE munstreamUnknown #-}
 
-unsafeAppend1 :: (PrimMonad m, GM.MVector v a) => v (PrimState m) a -> Int -> a -> m (v (PrimState m) a)
+unsafeAppend1 :: GM.MVector v a => v s a -> Int -> a -> ST s (v s a)
 {-# INLINE [0] unsafeAppend1 #-}
 unsafeAppend1 v i x
   | i < GM.length v = do
@@ -184,6 +199,6 @@ enlarge_delta :: GM.MVector v a => v s a -> Int
 enlarge_delta v = max (GM.length v) 1
 
 -- | Grow a vector logarithmically
-enlarge :: (PrimMonad m, GM.MVector v a) => v (PrimState m) a -> m (v (PrimState m) a)
+enlarge :: GM.MVector v a => v s a -> ST s (v s a)
 enlarge v = GM.unsafeGrow v (enlarge_delta v)
 {-# INLINE enlarge #-}
