@@ -3,7 +3,9 @@
 {-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# OPTIONS_GHC -fno-warn-unused-matches -fno-warn-unused-binds #-}
@@ -25,8 +27,10 @@ import Control.Monad.Free
 import Control.Monad.ST
 import Control.Monad.ST.Class
 import Control.Monad.ST.Unsafe as Unsafe
+import Data.Data
 import Data.Foldable
 import Data.Functor.Identity
+import GHC.Generics
 import Data.Traversable
 import qualified Data.Vector.Fusion.Stream.Monadic as M
 import qualified Data.Vector.Fusion.Stream.Size as SS
@@ -74,6 +78,7 @@ instance MonadFree (ST s) (Slow s) where
 data Partial a
   = Stop a
   | Step (Partial a)
+  deriving (Show, Read, Data, Typeable, Generic)
 
 instance Functor Partial where
   fmap f (Stop a)  = Stop (f a)
