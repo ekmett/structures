@@ -63,9 +63,11 @@ foldM' m z0 (M.Stream step s0 _) = foldM'_loop SPEC z0 s0
         do
           r <- liftST (step s)
           case r of
-            M.Yield x s' -> do { z' <- liftST (m z x); delay $ foldM'_loop SPEC z' s' }
-            M.Skip    s' -> foldM'_loop SPEC z s'
-            M.Done       -> return z
+            M.Yield x s' -> do
+              z' <- liftST (m z x)
+              delay $ foldM'_loop SPEC z' s'
+            M.Skip s' -> foldM'_loop SPEC z s'
+            M.Done -> return z
 {-# INLINE [1] foldM' #-}
 
 -- | Left fold with a monadic operator
@@ -76,9 +78,11 @@ foldM m z0 (M.Stream step s0 _) = foldM_loop SPEC z0 s0
       = do
           r <- liftST (step s)
           case r of
-            M.Yield x s' -> do { z' <- liftST (m z x); delay $ foldM_loop SPEC z' s' }
-            M.Skip    s' -> foldM_loop SPEC z s'
-            M.Done       -> return z
+            M.Yield x s' -> do
+              z' <- liftST (m z x)
+              delay $ foldM_loop SPEC z' s'
+            M.Skip s' -> foldM_loop SPEC z s'
+            M.Done -> return z
 {-# INLINE [1] foldM #-}
 
 
