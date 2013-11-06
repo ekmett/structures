@@ -2,13 +2,15 @@
 {-# LANGUAGE RankNTypes  #-}
 {-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -fno-warn-unused-matches -fno-warn-unused-binds #-}
 
 module Data.Vector.Slow
   ( IterST
-  , Iter
+  , Partial(..)
   , delay
   , walkST
+  , streamST
   , munstream
   , unstreamM
   , foldM'
@@ -19,31 +21,38 @@ import Control.Monad.ST
 import Control.Monad.ST.Class
 import Control.Monad.ST.Unsafe as Unsafe
 import Control.Monad.Trans.Iter
-import Data.Functor.Identity
 import qualified Data.Vector.Fusion.Stream.Monadic as M
 import qualified Data.Vector.Fusion.Stream.Size as SS
 import Data.Vector.Internal.Check as Ck
 import qualified Data.Vector.Generic as G
 import qualified Data.Vector.Generic.Mutable as GM
 import System.IO.Unsafe as Unsafe
+import Data.Vector.Fusion.Util
 
 import SpecConstr ( SpecConstrAnnotation(..) )
 data SPEC = SPEC | SPEC2
 {-# ANN type SPEC ForceSpecConstr #-}
 
+data Partial a
+  = Stop a
+  | Step (Partial a)
+  deriving (Show, Read, Eq, Ord)
+
 #define BOUNDS_CHECK(f)   (Ck.f __FILE__ __LINE__ Ck.Bounds)
 #define INTERNAL_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Internal)
 
 type IterST s = IterT (ST s)
-type Iter     = IterT Identity
 
-walkST :: (forall s. IterST s a) -> Iter a
+walkST :: (forall s. IterST s a) -> Partial a
 walkST m0 = go m0 where
   go (IterT m) =
     case Unsafe.unsafePerformIO $
          Unsafe.unsafeSTToIO m of
-      Pure a -> return a
-      Iter n -> delay (go n)
+      Left  a -> Stop a
+      Right n -> Step (go n)
+
+streamST :: M.Stream Id a -> M.Stream (ST s) a
+streamST (M.Stream step s n) = M.Stream (return . unId . step) s n
 
 unstreamM :: G.Vector v a => M.Stream (ST s) a -> IterST s (v a)
 unstreamM s = munstream s >>= liftST . G.unsafeFreeze
