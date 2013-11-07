@@ -51,6 +51,7 @@ module Data.Vector.Map
   ) where
 
 import Control.Monad.ST.Unsafe as Unsafe
+import Control.Monad.ST.Class
 import Control.Monad.Trans.Iter
 import Data.Bits
 import qualified Data.List as List
@@ -59,7 +60,8 @@ import Data.Vector.Fusion.Stream.Monadic (Stream(..))
 import qualified Data.Vector.Fusion.Stream.Monadic as Stream
 import Data.Vector.Fusion.Util
 import qualified Data.Vector.Generic as G
-import qualified Data.Vector.Map.Fusion as Fusion
+import qualified Data.Vector.Generic.Mutable as GM
+-- import qualified Data.Vector.Map.Fusion as Fusion
 import Data.Vector.Slow as Slow
 import Prelude hiding (null, lookup)
 import System.IO.Unsafe as Unsafe
@@ -137,56 +139,70 @@ step (Stop _)  = error "insert: step Stop"
 step (Step m) = m
 {-# INLINE step #-}
 
-{-
-merge :: (Ord k, Arrayed k, Arrayed a) => Array k -> Array a -> Array k -> Array a -> Partial (Chunk k a)
-merge ka va kb vb = walkST $ do
-  kc <- unsafeNew (la + lb)
-  vc <- unsafeNew (la + lb)
-  go 0 0
-  return (Chunk kc vc)
-  where
+merge :: forall k a. (Ord k, Arrayed k, Arrayed a) => Array k -> Array a -> Array k -> Array a -> Partial (Chunk k a)
+merge ka va kb vb = step (walkDupableST mergeST) where
+ mergeST :: forall s. IterST s (Chunk k a)
+ mergeST = do
+  let
     !la = G.length ka
     !lb = G.length kb
+  kc <- liftST $ GM.unsafeNew (la + lb)
+  vc <- liftST $ GM.unsafeNew (la + lb)
+  let
+    goL :: Int -> Int -> IterST s ()
     goL !i !j -- left exhausted
       | j >= lb = return ()
       | !k <- i + j = do
-        kj <- unsafeIndexM kb j
-        unsafeWrite kc k kj
-        vj <- unsafeIndexM vb j
-        unsafeWrite vc k vj
+        liftST $ do
+          kj <- G.unsafeIndexM kb j
+          GM.unsafeWrite kc k kj
+          vj <- G.unsafeIndexM vb j
+          GM.unsafeWrite vc k vj
         delay $ goL i (j+1)
+
+    goR :: Int -> Int -> IterST s ()
     goR !i !j -- right exhausted
       | i >= la = return ()
       | !k <- i + j = do
-        ki <- unsafeIndexM ka i
-        unsafeWrite kc k kj
-        vj <- unsafeIndexM va i
-        unsafeWrite vc k vj
+        liftST $ do
+          ki <- G.unsafeIndexM ka i
+          GM.unsafeWrite kc k ki
+          vi <- G.unsafeIndexM va i
+          GM.unsafeWrite vc k vi
         delay $ goR (i+1) j
+
+    go :: Int -> Int -> IterST s ()
     go !i !j
-      | ila = goL i j
+      | i >= la = goL i j
+      | j >= lb = goR i j
       | !k <- i + j = do
-        ki <- unsafeIndexM ka i
-        kj <- unsafeIndexM kb j
+        ki <- liftST $ G.unsafeIndexM ka i
+        kj <- liftST $ G.unsafeIndexM kb j
         case compare ki kj of
           LT -> do
-            vi <- unsafeIndexM va i
-            unsafeWrite kc k ki
-            unsafeWrite vc k vi
+            liftST $ do
+              vi <- G.unsafeIndexM va i
+              GM.unsafeWrite kc k ki
+              GM.unsafeWrite vc k vi
             delay $ go (i+1) j
           EQ -> do
-            vi <- unsafeIndexM va i
-            unsafeWrite kc k ki
-            unsafeWrite vc k vi
+            liftST $ do
+              vi <- G.unsafeIndexM va i
+              GM.unsafeWrite kc k ki
+              GM.unsafeWrite vc k vi
             delay $ go (i+1) (i+j)
           GT -> do
-            vj <- unsafeIndexM vb j
-            unsafeWrite kc k kj
-            unsafeWrite vc k vj
+            liftST $ do
+              vj <- G.unsafeIndexM vb j
+              GM.unsafeWrite kc k kj
+              GM.unsafeWrite vc k vj
             delay $ go i (j+1)
-      where ila = i >= la
-            jlb = j >= lb
--}
+  go 0 0
+  liftST $ do
+    fkc <- G.unsafeFreeze kc
+    fvc <- G.unsafeFreeze vc
+    return $ Chunk fkc fvc
+{-# INLINE merge #-}
 
 walkDupableST :: (forall s. IterST s a) -> Partial a
 walkDupableST m0 = go m0 where
@@ -196,11 +212,13 @@ walkDupableST m0 = go m0 where
       Left  a -> Stop a
       Right n -> Step (go n)
 
+{-
 merge :: (Ord k, Arrayed k, Arrayed a) => Array k -> Array a -> Array k -> Array a -> Partial (Chunk k a)
 merge km m kn n = step $ walkDupableST $ do
   V_Pair _ ks vs <- Slow.unstreamM $ Slow.streamST $ Fusion.merge (zips km m) (zips kn n)
   return $ Chunk ks vs
 {-# INLINE merge #-}
+-}
 
 fromList :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromList xs = List.foldl' (\m (k,v) -> insert k v m) empty xs
@@ -219,6 +237,8 @@ search p = go where
           m = l + unsafeShiftR hml 1 + unsafeShiftR hml 6
 {-# INLINE search #-}
 
+{-
 zips :: (G.Vector v a, G.Vector u b) => v a -> u b -> Stream Id (a, b)
 zips va ub = Stream.zip (G.stream va) (G.stream ub)
 {-# INLINE zips #-}
+-}
