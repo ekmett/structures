@@ -14,8 +14,8 @@ import qualified Data.Vector.Generic as G
 
 data Set a
   = S0
-  | S1 !(Array a)
-  | S2 !(Array a) !(Array a)            !(Partial (Array a)) !(Set a)
+  | S1                       !(Array a)
+  | S2            !(Array a) !(Array a) !(Partial (Array a)) !(Set a)
   | S3 !(Array a) !(Array a) !(Array a) !(Partial (Array a)) !(Set a)
 
 deriving instance Show (Array a) => Show (Set a)

@@ -50,6 +50,8 @@ module Data.Vector.Map
   , fromList
   ) where
 
+import Control.Monad.ST.Unsafe as Unsafe
+import Control.Monad.Trans.Iter
 import Data.Bits
 import qualified Data.List as List
 import Data.Vector.Array
@@ -60,6 +62,7 @@ import qualified Data.Vector.Generic as G
 import qualified Data.Vector.Map.Fusion as Fusion
 import Data.Vector.Slow as Slow
 import Prelude hiding (null, lookup)
+import System.IO.Unsafe as Unsafe
 
 #define BOUNDS_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Bounds)
 
@@ -80,7 +83,6 @@ data Map k a
 
 deriving instance (Show (Arr v v), Show (Arr k k)) => Show (Map k v)
 deriving instance (Show (Arr v v), Show (Arr k k)) => Show (Chunk k v)
-
 
 -- | /O(1)/. Identify if a 'Map' is the 'empty' 'Map'.
 null :: Map k v -> Bool
@@ -135,8 +137,67 @@ step (Stop _)  = error "insert: step Stop"
 step (Step m) = m
 {-# INLINE step #-}
 
+{-
 merge :: (Ord k, Arrayed k, Arrayed a) => Array k -> Array a -> Array k -> Array a -> Partial (Chunk k a)
-merge km m kn n = step $ walkST $ do
+merge ka va kb vb = walkST $ do
+  kc <- unsafeNew (la + lb)
+  vc <- unsafeNew (la + lb)
+  go 0 0
+  return (Chunk kc vc)
+  where
+    !la = G.length ka
+    !lb = G.length kb
+    goL !i !j -- left exhausted
+      | j >= lb = return ()
+      | !k <- i + j = do
+        kj <- unsafeIndexM kb j
+        unsafeWrite kc k kj
+        vj <- unsafeIndexM vb j
+        unsafeWrite vc k vj
+        delay $ goL i (j+1)
+    goR !i !j -- right exhausted
+      | i >= la = return ()
+      | !k <- i + j = do
+        ki <- unsafeIndexM ka i
+        unsafeWrite kc k kj
+        vj <- unsafeIndexM va i
+        unsafeWrite vc k vj
+        delay $ goR (i+1) j
+    go !i !j
+      | ila = goL i j
+      | !k <- i + j = do
+        ki <- unsafeIndexM ka i
+        kj <- unsafeIndexM kb j
+        case compare ki kj of
+          LT -> do
+            vi <- unsafeIndexM va i
+            unsafeWrite kc k ki
+            unsafeWrite vc k vi
+            delay $ go (i+1) j
+          EQ -> do
+            vi <- unsafeIndexM va i
+            unsafeWrite kc k ki
+            unsafeWrite vc k vi
+            delay $ go (i+1) (i+j)
+          GT -> do
+            vj <- unsafeIndexM vb j
+            unsafeWrite kc k kj
+            unsafeWrite vc k vj
+            delay $ go i (j+1)
+      where ila = i >= la
+            jlb = j >= lb
+-}
+
+walkDupableST :: (forall s. IterST s a) -> Partial a
+walkDupableST m0 = go m0 where
+  go (IterT m) =
+    case Unsafe.unsafeDupablePerformIO $
+         Unsafe.unsafeSTToIO m of
+      Left  a -> Stop a
+      Right n -> Step (go n)
+
+merge :: (Ord k, Arrayed k, Arrayed a) => Array k -> Array a -> Array k -> Array a -> Partial (Chunk k a)
+merge km m kn n = step $ walkDupableST $ do
   V_Pair _ ks vs <- Slow.unstreamM $ Slow.streamST $ Fusion.merge (zips km m) (zips kn n)
   return $ Chunk ks vs
 {-# INLINE merge #-}
