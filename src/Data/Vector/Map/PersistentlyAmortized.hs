@@ -12,54 +12,21 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE NamedFieldPuns #-}
 -----------------------------------------------------------------------------
 -- |
--- Copyright   :  (C) 2013 Edward Kmett
+-- Copyright   :  (C) 2013 Edward Kmett, Mike Zuser
 -- License     :  BSD-style (see the file LICENSE)
 -- Maintainer  :  Edward Kmett <ekmett@gmail.com>
 -- Stability   :  experimental
 -- Portability :  non-portable
 --
--- This module provides a 'Vector'-based 'Map' that is loosely based on the
--- Cache Oblivious Lookahead Array (COLA) by Bender et al. from
--- <http://supertech.csail.mit.edu/papers/sbtree.pdf "Cache-Oblivious Streaming B-Trees">.
---
--- Currently this 'Map' is implemented in an insert-only fashion. Deletions are left to future work
--- or to another derived structure in case they prove expensive.
---
--- Unlike the COLA, this version merely provides amortized complexity bounds as this permits us to
--- provide a fully functional API. However, even those asymptotics are only guaranteed if you do not
--- modify the \"old\" versions of the 'Map'. If you do, then while correctness is preserved, the
--- asymptotic analysis becomes inaccurate.
---
--- Reading from \"old\" versions of the 'Map' does not affect the asymptotic analysis and is fine.
---
--- Fractional cascading was originally replaced with the use of a hierarchical bloom filter per level containing
--- the elements for that level, with the false positive rate tuned to balance the lookup cost against
--- the costs of the cache misses for a false positive at that depth. This avoids the need to collect
--- forwarding pointers from the next level, reducing pressure on the cache dramatically, while providing
--- the same asymptotic complexity.
---
--- With either of these two techniques when used ephemerally, this 'Map' had asymptotic performance equal to that
--- of a B-Tree tuned to the parameters of your caches with requiring such parameter tuning.
---
--- However, the constants were still bad enough that the naive /O(log^2 n)/ version of the COLA actually wins
--- at lookups in benchmarks at the scale this data structure is interesting, say around a few million entries,
--- by a factor of 10x! Consequently, we're currently not even Bloom filtering.
---
--- Compared to the venerable @Data.Map@, this data structure currently consumes more memory, but it
--- provides a more limited palette of operations with different asymptotics (~10x faster inserts at a million entries)
--- and enables us to utilize contiguous storage.
---
--- /NB:/ when used with boxed data this structure may hold onto references to old versions
--- of things for many updates to come until sufficient operations have happened to merge them out
--- of the COLA.
---
--- TODO: track actual percentage of occupancy for each vector compared to the source vector it was based on.
--- This would permit 'split' and other operations that trim a 'Map' to properly reason about space usage by
--- borrowing the 1/3rd occupancy rule from a Stratified Doubling Array.
+-- This module provides a version on Data.Vector.'Data.Vector.Map' that supports efficiently inserting
+-- into \"old\" versions of the 'Map'. It is somewhat slower for the ephemeral use case, especially for
+-- lookups.
 -----------------------------------------------------------------------------
-module Data.Vector.Map
+module Data.Vector.Map.PersistentlyAmortized
   ( Map(..)
   , empty
   , null
@@ -67,7 +34,7 @@ module Data.Vector.Map
   , lookup
   , insert
   , fromList
-  , shape
+--  , shape
   ) where
 
 import Data.Bits
@@ -82,16 +49,44 @@ import Prelude hiding (null, lookup)
 
 #define BOUNDS_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Bounds)
 
--- | This Map is implemented as an insert-only Cache Oblivious Lookahead Array (COLA) with amortized complexity bounds
--- that are equal to those of a B-Tree when it is used ephemerally, using Bloom filters to replace the fractional
--- cascade.
 data Map k v
   = Nil
   | One !k v !(Map k v)
-  | Map !Int !(Array k) !(Array v) !(Map k v)
+  | Map !(Merge k v) !(Map k v)
 
 deriving instance (Show (Arr v v), Show (Arr k k), Show k, Show v) => Show (Map k v)
 deriving instance (Read (Arr v v), Read (Arr k k), Read k, Read v) => Read (Map k v)
+
+-- To achieve persistently amortized bounds, we create a suspension for merge
+-- but continue to perform queries against the unmerged components until
+-- the merge has been paid for.
+-- We will maintain the invariant that there can only be one
+-- Unmerged constructor of each size in the Map.
+data Merge k v
+  = Unmerged
+    -- The size is an upper bound, since we can't know the true size
+    -- until after we run the merge.
+    { size       :: !Int
+    , key        :: !k
+    , val        :: !v
+    , leftMerge  :: !(Merge k v)
+    , rightKeys  :: !(Array k)
+    , rightVals  :: !(Array v)
+    , mergedKeys :: (Array k)
+    , mergedVals :: (Array v)
+    }
+  | Merged
+    { mergedKeys :: !(Array k)
+    , mergedVals :: !(Array v)
+    }
+
+deriving instance (Show (Arr v v), Show (Arr k k), Show k, Show v) => Show (Merge k v)
+deriving instance (Read (Arr v v), Read (Arr k k), Read k, Read v) => Read (Merge k v)
+
+mergeSize :: Arrayed k => Merge k v -> Int
+mergeSize Unmerged{size}     = size
+mergeSize Merged{mergedKeys} = G.length mergedKeys
+{-# INLINE mergeSize #-}
 
 -- | /O(1)/. Identify if a 'Map' is the 'empty' 'Map'.
 null :: Map k v -> Bool
@@ -117,8 +112,19 @@ lookup !k m0 = go m0 where
   go (One i a m)
     | k == i    = Just a
     | otherwise = go m
-  go (Map n ks vs m)
-    | j <- search (\i -> ks G.! i >= k) 0 (n-1)
+  go (Map (Merged ks vs) m)
+    | j <- search (\i -> ks G.! i >= k) 0 (G.length ks - 1)
+    , ks G.! j == k = Just $ vs G.! j
+    | otherwise = go m
+  -- By the invariant, there may only be one Unmerged node of each
+  -- logarithmic size. If they are all nested in a single node,
+  -- lookup on that node can degrade from O(log N) to O(log^2 N),
+  -- but since this can only happen on one of the possible O(log N)
+  -- nodes, the overall time is still O(log^2 N)
+  go (Map (Unmerged _ k' v mg ks vs _ _) m)
+    | k == k'   = Just v
+    | Just v <- go (Map mg Nil) = Just v
+    | j <- search (\i -> ks G.! i >= k) 0 (G.length ks - 1)
     , ks G.! j == k = Just $ vs G.! j
     | otherwise = go m
 {-# INLINE lookup #-}
@@ -132,12 +138,11 @@ vseq :: forall a b. Arrayed a => a -> b -> b
 vseq a b = G.elemseq (undefined :: Array a) a b
 {-# INLINE vseq #-}
 
--- | O((log N)\/B) ephemerally amortized loads for each cache, O(N\/B) worst case. Insert an element.
 insert :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
-insert !k v (Map n1 ks1 vs1 (Map n2 ks2 vs2 m))
-  | threshold n1 n2 = insert2 k v ks1 vs1 ks2 vs2 m
+insert !k v (Map ms1 (Map ms2 m))
+  | threshold (mergeSize ms1) (mergeSize ms2) = insertUnmerged k v ms1 ms2 m
 insert !ka va (One kb vb (One kc vc m)) = case G.unstream $ Fusion.insert ka va rest of
-    V_Pair n ks vs -> Map n ks vs m
+    V_Pair _ ks vs -> Map (Merged ks vs) m
   where
     rest = case compare kb kc of
       LT -> Stream.fromListN 2 [(kb,vb),(kc,vc)]
@@ -146,10 +151,31 @@ insert !ka va (One kb vb (One kc vc m)) = case G.unstream $ Fusion.insert ka va 
 insert k v m = v `vseq` One k v m
 {-# INLINABLE insert #-}
 
-insert2 :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Array k -> Array v -> Array k -> Array v -> Map k v -> Map k v
-insert2 k v ks1 vs1 ks2 vs2 m = case G.unstream $ Fusion.insert k v (zips ks1 vs1) `Fusion.merge` zips ks2 vs2 of
-  V_Pair n ks3 vs3 -> Map n ks3 vs3 m
-{-# INLINE insert2 #-}
+-- Save the inputs, set up the merge, and restore the invariant.
+insertUnmerged :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Merge k v -> Merge k v -> Map k v -> Map k v
+insertUnmerged k v lms (Merged rks rvs) m
+  = Map (Unmerged n k v lms rks rvs nks nvs) (mergeOne m)
+  where
+    n = mergeSize lms + G.length rks + 1
+    merge = G.unstream $ Fusion.insert k v (zips (mergedKeys lms) (mergedVals lms)) `Fusion.merge` zips rks rvs
+    (nks, nvs) = case merge of V_Pair _ ks' vs' -> (ks', vs')
+insertUnmerged _ _ _ _ _ = error "insert: invariant violation, only the right half of a merge should be suspended"
+{-# INLINABLE insertUnmerged #-}
+
+-- The merge discharged by mergeOne will always be the same size as the one created
+-- by insertUnmerged because of the structure of skew binary arithmetic.
+-- Since the new merge that was just created is the same size as the old one,
+-- and all the steps to create the new one took place after the old one was
+-- created, enough time must have past to amortize the cost of discharging the merge.
+mergeOne :: Map k v -> Map k v
+mergeOne Nil          = Nil
+mergeOne (One _ _ _)  = error "insert: invariant violation, One after a merge"
+mergeOne (Map ms m)   = Map (go ms) m
+  where
+    go Merged{..} = error "insert: invariant violation, expecting"
+    go Unmerged{leftMerge = Merged{}, mergedKeys, mergedVals} = Merged mergedKeys mergedVals
+    go mg@Unmerged{leftMerge} = mg{leftMerge = go leftMerge}
+{-# INLINABLE mergeOne #-}
 
 fromList :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromList xs = List.foldl' (\m (k,v) -> insert k v m) empty xs
@@ -173,8 +199,9 @@ zips va ub = Stream.zip (G.stream va) (G.stream ub)
 {-# INLINE zips #-}
 
 -- * Debugging
-
+{-
 shape :: Map k v -> [Int]
 shape Nil           = []
 shape (One _ _ m)   = 1 : shape m
 shape (Map n _ _ m) = n : shape m
+-}
