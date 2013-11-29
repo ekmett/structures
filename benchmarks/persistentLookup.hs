@@ -37,10 +37,10 @@ main = do
     nfIO (return v14)
     nfIO (return p14)
     defaultMainWith defaultConfig { cfgSamples = ljust 10 } (return ())
-      [ bench "COLA insertLookup from 2^12"     $ nf (insertLookupV v12 (2^12)) 20
-      , bench "COLA.PA insertLookup from 2^12"  $ nf (insertLookupP p12 (2^12)) 20
-      , bench "COLA insertLookup from 2^14"     $ nf (insertLookupV v14 (2^12)) 20
-      , bench "COLA.PA insertLookup from 2^14"  $ nf (insertLookupP p14 (2^12)) 20
+      [ bench "COLA lookup 2^12 from 2^12 after small update"     $ nf (insertLookupV v12 (2^12)) 20
+      , bench "COLA.PA lookup 2^12 from 2^12 after small update"  $ nf (insertLookupP p12 (2^12)) 20
+      , bench "COLA lookup 2^12 from 2^14 after small update"     $ nf (insertLookupV v14 (2^12)) 20
+      , bench "COLA.PA lookup 2^12 from 2^14 after small update"  $ nf (insertLookupP p14 (2^12)) 20
       ]
   where
     v12  = buildV $ 2^12 - 10
