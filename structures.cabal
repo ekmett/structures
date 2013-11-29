@@ -95,7 +95,7 @@ library
     Data.Vector.Map.PersistentlyAmortized
     Data.Vector.Set
     Data.Vector.Set.Fusion
-    --Data.Vector.Slow
+    Data.Vector.Slow
 
   ghc-options: -Wall
 
