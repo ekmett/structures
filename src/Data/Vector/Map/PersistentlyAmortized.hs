@@ -123,7 +123,7 @@ lookup !k m0 = go m0 where
   -- nodes, the overall time is still O(log^2 N)
   go (Map (Unmerged _ k' v mg ks vs _ _) m)
     | k == k'   = Just v
-    | Just v <- go (Map mg Nil) = Just v
+    | Just v' <- go (Map mg Nil) = Just v'
     | j <- search (\i -> ks G.! i >= k) 0 (G.length ks - 1)
     , ks G.! j == k = Just $ vs G.! j
     | otherwise = go m
