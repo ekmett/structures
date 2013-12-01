@@ -20,6 +20,12 @@ buildV n = F.foldl' (flip (join V.insert)) V.empty $ take n $ randoms (mkStdGen 
 buildP :: Int -> P.Map Int Int
 buildP n = F.foldl' (flip (join P.insert)) P.empty $ take n $ randoms (mkStdGen 1)
 
+lookupV :: V.Map Int Int -> Int -> Int
+lookupV m n = F.foldl' (+) 0 $ catMaybes $ fmap (`V.lookup` m) $ take n $ randoms (mkStdGen 1)
+
+lookupP :: P.Map Int Int -> Int -> Int
+lookupP m n = F.foldl' (+) 0 $ catMaybes $ fmap (`P.lookup` m) $ take n $ randoms (mkStdGen 1)
+
 insertLookupV :: V.Map Int Int -> Int -> Int -> Int
 insertLookupV m n p = F.foldl' (+) 0 $ catMaybes $ fmap look $ take n $ randoms (mkStdGen 1)
   where
@@ -37,9 +43,13 @@ main = do
     nfIO (return v14)
     nfIO (return p14)
     defaultMainWith defaultConfig { cfgSamples = ljust 10 } (return ())
-      [ bench "COLA lookup 2^12 from 2^12 after small update"     $ nf (insertLookupV v12 (2^12)) 20
+      [ bench "COLA lookup 2^12 from 2^12"                        $ nf (lookupV v12) (2^12)
+      , bench "COLA lookup 2^12 from 2^12 after small update"     $ nf (insertLookupV v12 (2^12)) 20
+      , bench "COLA.PA lookup 2^12 from 2^12"                     $ nf (lookupP p12) (2^12)
       , bench "COLA.PA lookup 2^12 from 2^12 after small update"  $ nf (insertLookupP p12 (2^12)) 20
+      , bench "COLA lookup 2^12 from 2^14"                        $ nf (lookupV v14) (2^12)
       , bench "COLA lookup 2^12 from 2^14 after small update"     $ nf (insertLookupV v14 (2^12)) 20
+      , bench "COLA.PA lookup 2^12 from 2^14"                     $ nf (lookupP p14) (2^12)
       , bench "COLA.PA lookup 2^12 from 2^14 after small update"  $ nf (insertLookupP p14 (2^12)) 20
       ]
   where
