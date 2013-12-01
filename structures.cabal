@@ -92,6 +92,7 @@ library
     Data.Vector.Heap
     Data.Vector.Map
     Data.Vector.Map.Fusion
+    Data.Vector.Map.PersistentlyAmortized
     Data.Vector.Set
     Data.Vector.Set.Fusion
     Data.Vector.Slow
@@ -282,3 +283,30 @@ benchmark inserts
     structures,
     unordered-containers,
     vector
+
+benchmark persistentLookup
+  type:           exitcode-stdio-1.0
+  main-is:        persistentLookup.hs
+  ghc-options:    -Wall
+  hs-source-dirs: benchmarks
+
+  if flag(optimized)
+    ghc-options: -O2
+
+  if flag(threaded)
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+
+  if flag(llvm)
+    ghc-options: -fllvm
+
+  build-depends:
+    array,
+    base,
+    containers,
+    criterion,
+    deepseq,
+    MonadRandom,
+    structures,
+    unordered-containers,
+    vector
+
