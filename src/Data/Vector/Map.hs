@@ -29,7 +29,7 @@
 -- or to another derived structure in case they prove expensive.
 --
 -- Currently, we also do not use fractional cascading, as it affects the constant factors badly enough
--- to not pay for itself at the scales we are interested in. The naive /O(log^2 n)/ lookup 
+-- to not pay for itself at the scales we are interested in. The naive /O(log^2 n)/ lookup
 -- consistently outperforms the alternative.
 --
 -- Compared to the venerable @Data.Map@, this data structure currently consumes more memory, but it
