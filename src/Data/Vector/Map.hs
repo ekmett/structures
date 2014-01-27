@@ -58,7 +58,6 @@ import qualified Data.List as List
 import Data.Vector.Array
 import qualified Data.Vector.Generic as G
 import qualified Data.Vector.Generic.Mutable as GM
--- import qualified Data.Vector.Map.Fusion as Fusion
 import Data.Vector.Slow as Slow
 import Prelude hiding (null, lookup)
 import System.IO.Unsafe as Unsafe
