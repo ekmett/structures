@@ -56,9 +56,6 @@ import Control.Monad.Trans.Iter
 import Data.Bits
 import qualified Data.List as List
 import Data.Vector.Array
-import Data.Vector.Fusion.Stream.Monadic (Stream(..))
-import qualified Data.Vector.Fusion.Stream.Monadic as Stream
-import Data.Vector.Fusion.Util
 import qualified Data.Vector.Generic as G
 import qualified Data.Vector.Generic.Mutable as GM
 -- import qualified Data.Vector.Map.Fusion as Fusion
