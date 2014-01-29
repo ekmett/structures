@@ -21,6 +21,7 @@ module Data.Vector.Bit
   , size
   , singleton
   , empty
+  , access
   -- * Vectors of Bits
   , UM.MVector(MV_Bit)
   , U.Vector(V_Bit)
@@ -144,10 +145,9 @@ size :: BitVector -> Int
 size (BitVector n _ _) = n
 {-# INLINE size #-}
 
-type instance Index BitVector = Int
-
-instance (Functor f, Contravariant f) => Contains f BitVector where
-  contains i f (BitVector n as _) = coerce $ L.indexed f i (0 <= i && i < n && getBit (as U.! i))
+access :: Int -> BitVector -> Bool
+access i (BitVector n as _) = 0 <= i && i < n && getBit (as U.! i)
+{-# INLINE access #-}
 
 -- | Construct a 'BitVector' with a single element.
 singleton :: Bool -> BitVector
