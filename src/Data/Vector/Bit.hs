@@ -146,8 +146,10 @@ size (BitVector n _ _) = n
 
 type instance Index BitVector = Int
 
+{-
 instance (Functor f, Contravariant f) => Contains f BitVector where
   contains i f (BitVector n as _) = coerce $ L.indexed f i (0 <= i && i < n && getBit (as U.! i))
+-}
 
 -- | Construct a 'BitVector' with a single element.
 singleton :: Bool -> BitVector

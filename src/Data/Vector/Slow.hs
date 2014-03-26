@@ -20,7 +20,7 @@ module Data.Vector.Slow
 import Control.Monad.ST
 import Control.Monad.ST.Class
 import Control.Monad.ST.Unsafe as Unsafe
-import Control.Monad.Trans.Iter
+import Control.Monad.Trans.Iter hiding (foldM)
 import qualified Data.Vector.Fusion.Stream.Monadic as M
 import qualified Data.Vector.Fusion.Stream.Size as SS
 import Data.Vector.Internal.Check as Ck
