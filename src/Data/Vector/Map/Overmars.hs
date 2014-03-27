@@ -66,7 +66,7 @@ import Prelude hiding (null, lookup)
 import System.IO.Unsafe as Unsafe
 
 _THRESHOLD :: Int
-_THRESHOLD = 100
+_THRESHOLD = 1000
 
 
 -- | This Map is implemented as an insert-only Cache Oblivious Lookahead Array (COLA) with amortized complexity bounds
