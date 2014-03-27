@@ -65,9 +65,9 @@ import GHC.Prim (RealWorld)
 import Prelude hiding (null, lookup)
 import System.IO.Unsafe as Unsafe
 
+-- | How many items is it worth batching up in the Nursery?
 _THRESHOLD :: Int
 _THRESHOLD = 1000
-
 
 -- | This Map is implemented as an insert-only Cache Oblivious Lookahead Array (COLA) with amortized complexity bounds
 -- that are equal to those of a B-Tree, except for an extra log factor slowdown on lookups due to the lack of fractional
