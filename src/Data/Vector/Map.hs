@@ -12,9 +12,12 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE PatternGuards #-}
+#if __GLASGOW_HASKELL__ >= 708
+{-# LANGUAGE RoleAnnotations #-}
+#endif
 -----------------------------------------------------------------------------
 -- |
--- Copyright   :  (C) 2013 Edward Kmett
+-- Copyright   :  (C) 2013-2014 Edward Kmett
 -- License     :  BSD-style (see the file LICENSE)
 -- Maintainer  :  Edward Kmett <ekmett@gmail.com>
 -- Stability   :  experimental
@@ -22,30 +25,15 @@
 --
 -- This module provides a 'Vector'-based 'Map' that is loosely based on the
 -- Cache Oblivious Lookahead Array (COLA) by Bender et al. from
--- <http://supertech.csail.mit.edu/papers/sbtree.pdf "Cache-Oblivious Streaming B-Trees">.
+-- <http://supertech.csail.mit.edu/papers/sbtree.pdf "Cache-Oblivious Streaming B-Trees">,
+-- but with inserts deamortized using a technique from Overmars and van Leeuwen.
 --
 -- Currently this 'Map' is implemented in an insert-only fashion. Deletions are left to future work
 -- or to another derived structure in case they prove expensive.
 --
--- Unlike the COLA, this version merely provides amortized complexity bounds as this permits us to
--- provide a fully functional API. However, even those asymptotics are only guaranteed if you do not
--- modify the \"old\" versions of the 'Map'. If you do, then while correctness is preserved, the
--- asymptotic analysis becomes inaccurate.
---
--- Reading from \"old\" versions of the 'Map' does not affect the asymptotic analysis and is fine.
---
--- Fractional cascading was originally replaced with the use of a hierarchical bloom filter per level containing
--- the elements for that level, with the false positive rate tuned to balance the lookup cost against
--- the costs of the cache misses for a false positive at that depth. This avoids the need to collect
--- forwarding pointers from the next level, reducing pressure on the cache dramatically, while providing
--- the same asymptotic complexity.
---
--- With either of these two techniques when used ephemerally, this 'Map' had asymptotic performance equal to that
--- of a B-Tree tuned to the parameters of your caches with requiring such parameter tuning.
---
--- However, the constants were still bad enough that the naive /O(log^2 n)/ version of the COLA actually wins
--- at lookups in benchmarks at the scale this data structure is interesting, say around a few million entries,
--- by a factor of 10x! Consequently, we're currently not even Bloom filtering.
+-- Currently, we also do not use fractional cascading, as it affects the constant factors badly enough
+-- to not pay for itself at the scales we are interested in. The naive /O(log^2 n)/ lookup
+-- consistently outperforms the alternative.
 --
 -- Compared to the venerable @Data.Map@, this data structure currently consumes more memory, but it
 -- provides a more limited palette of operations with different asymptotics (~10x faster inserts at a million entries)
@@ -54,102 +42,191 @@
 -- /NB:/ when used with boxed data this structure may hold onto references to old versions
 -- of things for many updates to come until sufficient operations have happened to merge them out
 -- of the COLA.
---
--- TODO: track actual percentage of occupancy for each vector compared to the source vector it was based on.
--- This would permit 'split' and other operations that trim a 'Map' to properly reason about space usage by
--- borrowing the 1/3rd occupancy rule from a Stratified Doubling Array.
 -----------------------------------------------------------------------------
 module Data.Vector.Map
-  ( Map(..)
+  ( Map
   , empty
   , null
   , singleton
   , lookup
   , insert
   , fromList
-  , shape
   ) where
 
+import Control.Applicative hiding (empty)
 import Data.Bits
+import Data.Foldable as Foldable
 import qualified Data.List as List
 import Data.Vector.Array
-import Data.Vector.Fusion.Stream.Monadic (Stream(..))
-import qualified Data.Vector.Fusion.Stream.Monadic as Stream
-import Data.Vector.Fusion.Util
+import qualified Data.Map.Strict as Map
 import qualified Data.Vector.Generic as G
-import qualified Data.Vector.Map.Fusion as Fusion
+import qualified Data.Vector.Generic.Mutable as GM
+import GHC.Prim (RealWorld)
 import Prelude hiding (null, lookup)
+import System.IO.Unsafe as Unsafe
 
-#define BOUNDS_CHECK(f) (Ck.f __FILE__ __LINE__ Ck.Bounds)
+-- | How many items is it worth batching up in the Nursery?
+_THRESHOLD :: Int
+_THRESHOLD = 1000
 
 -- | This Map is implemented as an insert-only Cache Oblivious Lookahead Array (COLA) with amortized complexity bounds
--- that are equal to those of a B-Tree when it is used ephemerally, using Bloom filters to replace the fractional
--- cascade.
-data Map k v
-  = Nil
-  | One !k v !(Map k v)
-  | Map !Int !(Array k) !(Array v) !(Map k v)
+-- that are equal to those of a B-Tree, except for an extra log factor slowdown on lookups due to the lack of fractional
+-- cascading. It uses a traditional Data.Map as a nursery.
 
-deriving instance (Show (Arr v v), Show (Arr k k), Show k, Show v) => Show (Map k v)
-deriving instance (Read (Arr v v), Read (Arr k k), Read k, Read v) => Read (Map k v)
+data Map k a = Map !(Map.Map k a) !(LA k a)
+
+-- | Cache-Oblivious Lookahead Array internals
+data LA k a
+  = M0
+  | M1 !(Array k) !(Array a)
+  | M2 !(Array k) !(Array a)
+       !(Array k) !(Array a)
+       {-# UNPACK #-} !Int {-# UNPACK #-} !Int
+       !(MArray RealWorld k) !(MArray RealWorld a)
+       !(LA k a)
+  | M3 !(Array k) !(Array a)
+       !(Array k) !(Array a)
+       !(Array k) !(Array a)
+       {-# UNPACK #-} !Int {-# UNPACK #-} !Int
+       !(MArray RealWorld k) !(MArray RealWorld a)
+       !(LA k a)
+
+#if __GLASGOW_HASKELL__ >= 708
+type role Map nominal nominal
+#endif
+
+instance (Show (Arr v v), Show (Arr k k)) => Show (LA k v) where
+  showsPrec _ M0 = showString "M0"
+  showsPrec d (M1 ka a) = showParen (d > 10) $
+    showString "M1 " . showsPrec 11 ka . showChar ' ' . showsPrec 11 a
+  showsPrec d (M2 ka a kb b ra rb _ _ xs) = showParen (d > 10) $
+    showString "M2 " .
+    showsPrec 11 ka . showChar ' ' . showsPrec 11 a . showChar ' ' .
+    showsPrec 11 kb . showChar ' ' . showsPrec 11 b . showChar ' ' .
+    showsPrec 11 ra . showChar ' ' . showsPrec 11 rb . showString " _ _ " .
+    showsPrec 11 xs
+  showsPrec d (M3 ka a kb b kc c rb rc _ _ xs) = showParen (d > 10) $
+    showString "M3 " .
+    showsPrec 11 ka . showChar ' ' . showsPrec 11 a . showChar ' ' .
+    showsPrec 11 kb . showChar ' ' . showsPrec 11 b . showChar ' ' .
+    showsPrec 11 kc . showChar ' ' . showsPrec 11 c . showChar ' ' .
+    showsPrec 11 rb . showChar ' ' . showsPrec 11 rc . showString " _ _ " .
+    showsPrec 11 xs
+
+instance (Show (Arr v v), Show (Arr k k), Show k, Show v) => Show (Map k v) where
+  showsPrec d (Map n l) = showParen (d > 10) $
+    showString "Map " . showsPrec 11 n . showChar ' ' . showsPrec 11 l
 
 -- | /O(1)/. Identify if a 'Map' is the 'empty' 'Map'.
 null :: Map k v -> Bool
-null Nil = True
-null _   = False
+null (Map n M0) = Map.null n
+null _          = False
 {-# INLINE null #-}
 
 -- | /O(1)/ The 'empty' 'Map'.
 empty :: Map k v
-empty = Nil
+empty = Map Map.empty M0
 {-# INLINE empty #-}
 
 -- | /O(1)/ Construct a 'Map' from a single key/value pair.
-singleton :: Arrayed v => k -> v -> Map k v
-singleton k v = v `vseq` One k v Nil
+singleton :: (Arrayed k, Arrayed v) => k -> v -> Map k v
+singleton k v = Map (Map.singleton k v) M0
 {-# INLINE singleton #-}
 
--- | /O(log^2 N)/ persistently amortized, /O(N)/ worst case. Lookup an element.
+-- | /O(log^2 N)/ worst-case. Lookup an element.
 lookup :: (Ord k, Arrayed k, Arrayed v) => k -> Map k v -> Maybe v
-lookup !k m0 = go m0 where
+lookup !k (Map m0 la) = case Map.lookup k m0 of
+  Nothing -> go la
+  mv      -> mv
+ where
   {-# INLINE go #-}
-  go Nil = Nothing
-  go (One i a m)
-    | k == i    = Just a
-    | otherwise = go m
-  go (Map n ks vs m)
-    | j <- search (\i -> ks G.! i >= k) 0 (n-1)
-    , ks G.! j == k = Just $ vs G.! j
-    | otherwise = go m
+  go M0 = Nothing
+  go (M1 ka va)                       = lookup1 k ka va Nothing
+  go (M2 ka va kb vb _ _ _ _ m)       = lookup1 k ka va $ lookup1 k kb vb $ go m
+  go (M3 ka va kb vb kc vc _ _ _ _ m) = lookup1 k ka va $ lookup1 k kb vb $ lookup1 k kc vc $ go m
 {-# INLINE lookup #-}
 
-threshold :: Int -> Int -> Bool
-threshold n1 n2 = n1 > unsafeShiftR n2 1
-{-# INLINE threshold #-}
+lookup1 :: (Ord k, Arrayed k, Arrayed v) => k -> Array k -> Array v -> Maybe v -> Maybe v
+lookup1 k ks vs r
+  | j <- search (\i -> ks G.! i >= k) 0 (G.length ks - 1)
+  , ks G.! j == k = Just $ vs G.! j
+  | otherwise = r
+{-# INLINE lookup1 #-}
 
--- force a value as much as it would be forced by inserting it into an Array
-vseq :: forall a b. Arrayed a => a -> b -> b
-vseq a b = G.elemseq (undefined :: Array a) a b
-{-# INLINE vseq #-}
-
--- | O((log N)\/B) ephemerally amortized loads for each cache, O(N\/B) worst case. Insert an element.
+-- | O((log N)\/B) worst-case loads for each cache. Insert an element.
 insert :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
-insert !k v (Map n1 ks1 vs1 (Map n2 ks2 vs2 m))
-  | threshold n1 n2 = insert2 k v ks1 vs1 ks2 vs2 m
-insert !ka va (One kb vb (One kc vc m)) = case G.unstream $ Fusion.insert ka va rest of
-    V_Pair n ks vs -> Map n ks vs m
-  where
-    rest = case compare kb kc of
-      LT -> Stream.fromListN 2 [(kb,vb),(kc,vc)]
-      EQ -> Stream.fromListN 1 [(kb,vb)]
-      GT -> Stream.fromListN 2 [(kc,vc),(kb,vb)]
-insert k v m = v `vseq` One k v m
-{-# INLINABLE insert #-}
+insert k0 v0 (Map m0 xs0)
+  | n0 <= _THRESHOLD = Map (Map.insert k0 v0 m0) xs0
+  | otherwise = Map Map.empty $ unsafeDupablePerformIO $ inserts (G.fromListN n0 (Map.keys m0)) (G.fromListN n0 (Foldable.toList m0)) xs0
+ where
+  n0 = Map.size m0
+  inserts ka a M0 = return $ M1 ka a
+  inserts ka a (M1 kb b) = do
+    let n = G.length ka + G.length kb
+    kab <- GM.basicUnsafeNew n
+    ab  <- GM.basicUnsafeNew n
+    (ra,rb) <- steps ka a kb b 0 0 kab ab
+    return $ M2 ka a kb b ra rb kab ab M0
+  inserts ka a (M2 kb b kc c rb rc kbc bc xs) = do
+    (rb',rc') <- steps kb b kc c rb rc kbc bc
+    M3 ka a kb b kc c rb' rc' kbc bc <$> stepTail xs
+  inserts ka a (M3 kb b _ _ _ _ _ _ kcd cd xs) = do
+    let n = G.length ka + G.length kb
+    kab <- GM.basicUnsafeNew n
+    ab  <- GM.basicUnsafeNew n
+    (ra,rb) <- steps ka a kb b 0 0 kab ab
+    kcd' <- G.unsafeFreeze kcd
+    cd' <- G.unsafeFreeze cd
+    M2 ka a kb b ra rb kab ab <$> inserts kcd' cd' xs
 
-insert2 :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Array k -> Array v -> Array k -> Array v -> Map k v -> Map k v
-insert2 k v ks1 vs1 ks2 vs2 m = case G.unstream $ Fusion.insert k v (zips ks1 vs1) `Fusion.merge` zips ks2 vs2 of
-  V_Pair n ks3 vs3 -> Map n ks3 vs3 m
-{-# INLINE insert2 #-}
+  stepTail (M2 kx x ky y rx ry kxy xy xs) = do
+    (rx',ry') <- steps kx x ky y rx ry kxy xy
+    M2 kx x ky y rx' ry' kxy xy <$> stepTail xs
+  stepTail (M3 kx x ky y kz z ry rz kyz yz xs) = do
+    (ry',rz') <- steps ky y kz z ry rz kyz yz
+    M3 kx x ky y kz z ry' rz' kyz yz <$> stepTail xs
+  stepTail m = return m
+{-# INLINE insert #-}
+
+steps :: (Ord k, Arrayed k, Arrayed v) => Array k -> Array v -> Array k -> Array v -> Int -> Int -> MArray RealWorld k -> MArray RealWorld v -> IO (Int, Int)
+steps ka a kb b ra0 rb0 kab ab = go ra0 rb0 where
+  n = min (ra0 + rb0 + _THRESHOLD) (GM.length kab)
+  na = G.length ka
+  nb = G.length kb
+  go !ra !rb
+    | r >= n = return (ra, rb)
+    | ra == na = do
+      k <- G.basicUnsafeIndexM kb rb
+      v <- G.basicUnsafeIndexM b rb
+      GM.basicUnsafeWrite kab r k
+      GM.basicUnsafeWrite ab r v
+      go ra (rb + 1)
+    | rb == nb = do
+      k <- G.basicUnsafeIndexM ka ra
+      v <- G.basicUnsafeIndexM a ra
+      GM.basicUnsafeWrite kab r k
+      GM.basicUnsafeWrite ab r v
+      go (ra + 1) rb
+    | otherwise = do
+      k1 <- G.basicUnsafeIndexM ka ra
+      k2 <- G.basicUnsafeIndexM kb rb
+      case compare k1 k2 of
+        LT -> do
+          v <- G.basicUnsafeIndexM a ra
+          GM.basicUnsafeWrite kab r k1
+          GM.basicUnsafeWrite ab r v
+          go (ra + 1) rb
+        EQ -> do -- collision, overwrite with newer value
+          v <- G.basicUnsafeIndexM a ra
+          GM.basicUnsafeWrite kab r k1
+          GM.basicUnsafeWrite ab r v
+          go (ra + 1) (rb + 1)
+        GT -> do
+          v <- G.basicUnsafeIndexM b rb
+          GM.basicUnsafeWrite kab r k2
+          GM.basicUnsafeWrite ab r v
+          go ra (rb + 1)
+    where r = ra + rb
 
 fromList :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromList xs = List.foldl' (\m (k,v) -> insert k v m) empty xs
@@ -167,14 +244,3 @@ search p = go where
     where hml = h - l
           m = l + unsafeShiftR hml 1 + unsafeShiftR hml 6
 {-# INLINE search #-}
-
-zips :: (G.Vector v a, G.Vector u b) => v a -> u b -> Stream Id (a, b)
-zips va ub = Stream.zip (G.stream va) (G.stream ub)
-{-# INLINE zips #-}
-
--- * Debugging
-
-shape :: Map k v -> [Int]
-shape Nil           = []
-shape (One _ _ m)   = 1 : shape m
-shape (Map n _ _ m) = n : shape m
