@@ -65,6 +65,7 @@ flag optimized
 library
   build-depends:
     base              >= 4     && < 5,
+    containers        >= 0.5   && < 0.6,
     contravariant     >= 0.4.2 && < 1,
     deepseq           >= 1.1   && < 1.4,
     free              >= 4.6.1 && < 5,
