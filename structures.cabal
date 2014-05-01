@@ -94,6 +94,7 @@ library
     Data.Vector.Map
     Data.Vector.Map.Ephemeral
     Data.Vector.Map.Fusion
+    Data.Vector.Map.Persistent
     Data.Vector.Set
     Data.Vector.Set.Fusion
     Data.Vector.Slow
