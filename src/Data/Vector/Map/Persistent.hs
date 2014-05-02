@@ -69,31 +69,18 @@ import Prelude hiding (null, lookup)
 
 data Map k a
   = M0
-  | M1 !(Array k) !(Array a)
-  | M2 !(Array k) !(Array a) !(Array k) !(Array a) (Chunk k a) !(Map k a)
-  | M3 !(Array k) !(Array a) !(Array k) !(Array a) !(Array k) !(Array a) (Chunk k a) !(Map k a)
+  | M1 !(Chunk k a)
+  | M2 !(Chunk k a) !(Chunk k a) (Chunk k a) !(Map k a)
+  | M3 !(Chunk k a) !(Chunk k a) !(Chunk k a) (Chunk k a) !(Map k a)
 
 data Chunk k a = Chunk !(Array k) !(Array a)
+
+deriving instance (Show (Arr k k), Show (Arr a a)) => Show (Chunk k a)
+deriving instance (Show (Arr k k), Show (Arr a a)) => Show (Map k a)
 
 #if __GLASGOW_HASKELL__ >= 708
 type role Map nominal nominal
 #endif
-
-instance (Show (Arr v v), Show (Arr k k)) => Show (Map k v) where
-  showsPrec _ M0 = showString "M0"
-  showsPrec d (M1 ka a) = showParen (d > 10) $
-    showString "M1 " . showsPrec 11 ka . showChar ' ' . showsPrec 11 a
-  showsPrec d (M2 ka a kb b _ xs) = showParen (d > 10) $
-    showString "M2 " .
-    showsPrec 11 ka . showChar ' ' . showsPrec 11 a . showChar ' ' .
-    showsPrec 11 kb . showChar ' ' . showsPrec 11 b . showChar ' ' .
-    showsPrec 11 xs
-  showsPrec d (M3 ka a kb b kc c _ xs) = showParen (d > 10) $
-    showString "M3 " .
-    showsPrec 11 ka . showChar ' ' . showsPrec 11 a . showChar ' ' .
-    showsPrec 11 kb . showChar ' ' . showsPrec 11 b . showChar ' ' .
-    showsPrec 11 kc . showChar ' ' . showsPrec 11 c . showString " _ " .
-    showsPrec 11 xs
 
 -- | /O(1)/. Identify if a 'Map' is the 'empty' 'Map'.
 null :: Map k v -> Bool
@@ -108,43 +95,43 @@ empty = M0
 
 -- | /O(1)/ Construct a 'Map' from a single key/value pair.
 singleton :: (Arrayed k, Arrayed v) => k -> v -> Map k v
-singleton k v = M1 (G.singleton k) (G.singleton v)
+singleton k v = M1 $ Chunk (G.singleton k) (G.singleton v)
 {-# INLINE singleton #-}
 
 -- | /O(log^2 N)/ worst-case. Lookup an element.
 lookup :: (Ord k, Arrayed k, Arrayed v) => k -> Map k v -> Maybe v
 lookup !k m0 = go m0 where
   {-# INLINE go #-}
-  go M0                         = Nothing
-  go (M1 ka va)                 = lookup1 k ka va Nothing
-  go (M2 ka va kb vb _ m)       = lookup1 k ka va $ lookup1 k kb vb $ go m
-  go (M3 ka va kb vb kc vc _ m) = lookup1 k ka va $ lookup1 k kb vb $ lookup1 k kc vc $ go m
+  go M0                = Nothing
+  go (M1 as)           = lookup1 k as Nothing
+  go (M2 as bs _ m)    = lookup1 k as $ lookup1 k bs $ go m
+  go (M3 as bs cs _ m) = lookup1 k as $ lookup1 k bs $ lookup1 k cs $ go m
 {-# INLINE lookup #-}
 
-lookup1 :: (Ord k, Arrayed k, Arrayed v) => k -> Array k -> Array v -> Maybe v -> Maybe v
-lookup1 k ks vs r
+lookup1 :: (Ord k, Arrayed k, Arrayed v) => k -> Chunk k v -> Maybe v -> Maybe v
+lookup1 k (Chunk ks vs) r
   | j <- search (\i -> ks G.! i >= k) 0 (G.length ks - 1)
   , ks G.! j == k = Just $ vs G.! j
   | otherwise = r
 {-# INLINE lookup1 #-}
 
-zips :: (G.Vector v a, G.Vector u b) => v a -> u b -> Stream Id (a, b)
-zips va ub = Stream.zip (G.stream va) (G.stream ub)
+zips :: (Arrayed k, Arrayed v) => Chunk k v -> Stream Id (k, v)
+zips (Chunk ks vs) = Stream.zip (G.stream ks) (G.stream vs)
 {-# INLINE zips #-}
 
-merge :: (Ord k, Arrayed k, Arrayed v) => Array k -> Array v -> Array k -> Array v -> Chunk k v
-merge ka va kb vb = case G.unstream $ zips ka va `Fusion.merge` zips kb vb of
-  V_Pair _ kc vc -> Chunk kc vc
+merge :: (Ord k, Arrayed k, Arrayed v) => Chunk k v -> Chunk k v -> Chunk k v
+merge as bs = case G.unstream $ zips as `Fusion.merge` zips bs of
+  V_Pair _ ks vs -> Chunk ks vs
 {-# INLINE merge #-}
 
 -- | O((log N)\/B) worst-case loads for each cache. Insert an element.
 insert :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
-insert k0 v0 xs0 = inserts (G.singleton k0) (G.singleton v0) xs0
+insert k0 v0 xs0 = inserts (Chunk (G.singleton k0) (G.singleton v0)) xs0
  where
-  inserts ka a M0                                  = M1 ka a
-  inserts ka a (M1 kb b)                           = M2 ka a kb b (merge ka a kb b) M0
-  inserts ka a (M2 kb b kc c bc xs)                = M3 ka a kb b kc c bc xs
-  inserts ka a (M3 kb b _ _ _ _ (Chunk kcd cd) xs) = M2 ka a kb b (merge ka a kb b) (inserts kcd cd xs)
+  inserts as M0                 = M1 as
+  inserts as (M1 bs)            = M2 as bs (merge as bs) M0
+  inserts as (M2 bs cs bcs xs)  = M3 as bs cs bcs xs
+  inserts as (M3 bs _ _ cds xs) = cds `seq` M2 as bs (merge as bs) (inserts cds xs)
 {-# INLINE insert #-}
 
 fromList :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
