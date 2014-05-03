@@ -214,7 +214,6 @@ benchmark maps
   main-is:        maps.hs
   ghc-options:    -Wall
   hs-source-dirs: benchmarks
-  buildable: False
 
   if flag(optimized)
     ghc-options: -O2
@@ -240,7 +239,6 @@ benchmark lookups
   main-is:        lookups.hs
   ghc-options:    -Wall
   hs-source-dirs: benchmarks
-  buildable: False
 
   if flag(optimized)
     ghc-options: -O2

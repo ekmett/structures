@@ -72,7 +72,7 @@ import Prelude hiding (null, lookup)
 data Map k a = Map !(Map.Map k a) !(LA k a)
 
 _THRESHOLD :: Int
-_THRESHOLD = 10
+_THRESHOLD = 1000
 
 data LA k a
   = M0
