@@ -26,7 +26,7 @@
 -- This module provides a 'Vector'-based 'Map' that is loosely based on the
 -- Cache Oblivious Lookahead Array (COLA) by Bender et al. from
 -- <http://supertech.csail.mit.edu/papers/sbtree.pdf "Cache-Oblivious Streaming B-Trees">,
--- but with inserts deamortized using a technique from Overmars and van Leeuwen.
+-- but with inserts converted from ephemerally amortized to persisently amortized using a technique from Overmars and van Leeuwen.
 --
 -- Currently this 'Map' is implemented in an insert-only fashion. Deletions are left to future work
 -- or to another derived structure in case they prove expensive.
@@ -53,21 +53,17 @@ module Data.Vector.Map
   , fromList
   ) where
 
-import Control.Applicative hiding (empty)
 import Data.Bits
-import Data.Foldable as Foldable
+import qualified Data.Foldable as Foldable
 import qualified Data.List as List
 import Data.Vector.Array
-import qualified Data.Map.Strict as Map
+import Data.Vector.Fusion.Stream.Monadic (Stream(..))
+import qualified Data.Vector.Fusion.Stream.Monadic as Stream
+import Data.Vector.Fusion.Util
+import qualified Data.Map as Map
+import qualified Data.Vector.Map.Fusion as Fusion
 import qualified Data.Vector.Generic as G
-import qualified Data.Vector.Generic.Mutable as GM
-import GHC.Prim (RealWorld)
 import Prelude hiding (null, lookup)
-import System.IO.Unsafe as Unsafe
-
--- | How many items is it worth batching up in the Nursery?
-_THRESHOLD :: Int
-_THRESHOLD = 1000
 
 -- | This Map is implemented as an insert-only Cache Oblivious Lookahead Array (COLA) with amortized complexity bounds
 -- that are equal to those of a B-Tree, except for an extra log factor slowdown on lookups due to the lack of fractional
@@ -75,60 +71,36 @@ _THRESHOLD = 1000
 
 data Map k a = Map !(Map.Map k a) !(LA k a)
 
--- | Cache-Oblivious Lookahead Array internals
+_THRESHOLD :: Int
+_THRESHOLD = 10
+
 data LA k a
   = M0
-  | M1 !(Array k) !(Array a)
-  | M2 !(Array k) !(Array a)
-       !(Array k) !(Array a)
-       {-# UNPACK #-} !Int {-# UNPACK #-} !Int
-       !(MArray RealWorld k) !(MArray RealWorld a)
-       !(LA k a)
-  | M3 !(Array k) !(Array a)
-       !(Array k) !(Array a)
-       !(Array k) !(Array a)
-       {-# UNPACK #-} !Int {-# UNPACK #-} !Int
-       !(MArray RealWorld k) !(MArray RealWorld a)
-       !(LA k a)
+  | M1 !(Chunk k a)
+  | M2 !(Chunk k a) !(Chunk k a) (Chunk k a) !(LA k a) -- merged chunk is deliberately lazy
+  | M3 !(Chunk k a) !(Chunk k a) !(Chunk k a) (Chunk k a) !(LA k a)
+
+data Chunk k a = Chunk !(Array k) !(Array a)
+
+deriving instance (Show (Arr k k), Show (Arr a a)) => Show (Chunk k a)
+deriving instance (Show (Arr k k), Show (Arr a a)) => Show (LA k a)
 
 #if __GLASGOW_HASKELL__ >= 708
-type role Map nominal nominal
+type role LA nominal nominal
 #endif
 
-instance (Show (Arr v v), Show (Arr k k)) => Show (LA k v) where
-  showsPrec _ M0 = showString "M0"
-  showsPrec d (M1 ka a) = showParen (d > 10) $
-    showString "M1 " . showsPrec 11 ka . showChar ' ' . showsPrec 11 a
-  showsPrec d (M2 ka a kb b ra rb _ _ xs) = showParen (d > 10) $
-    showString "M2 " .
-    showsPrec 11 ka . showChar ' ' . showsPrec 11 a . showChar ' ' .
-    showsPrec 11 kb . showChar ' ' . showsPrec 11 b . showChar ' ' .
-    showsPrec 11 ra . showChar ' ' . showsPrec 11 rb . showString " _ _ " .
-    showsPrec 11 xs
-  showsPrec d (M3 ka a kb b kc c rb rc _ _ xs) = showParen (d > 10) $
-    showString "M3 " .
-    showsPrec 11 ka . showChar ' ' . showsPrec 11 a . showChar ' ' .
-    showsPrec 11 kb . showChar ' ' . showsPrec 11 b . showChar ' ' .
-    showsPrec 11 kc . showChar ' ' . showsPrec 11 c . showChar ' ' .
-    showsPrec 11 rb . showChar ' ' . showsPrec 11 rc . showString " _ _ " .
-    showsPrec 11 xs
-
-instance (Show (Arr v v), Show (Arr k k), Show k, Show v) => Show (Map k v) where
-  showsPrec d (Map n l) = showParen (d > 10) $
-    showString "Map " . showsPrec 11 n . showChar ' ' . showsPrec 11 l
-
--- | /O(1)/. Identify if a 'Map' is the 'empty' 'Map'.
+-- | /O(1)/. Identify if a 'LA' is the 'empty' 'LA'.
 null :: Map k v -> Bool
-null (Map n M0) = Map.null n
+null (Map m M0) = Map.null m
 null _          = False
 {-# INLINE null #-}
 
--- | /O(1)/ The 'empty' 'Map'.
+-- | /O(1)/ The 'empty' 'LA'.
 empty :: Map k v
 empty = Map Map.empty M0
 {-# INLINE empty #-}
 
--- | /O(1)/ Construct a 'Map' from a single key/value pair.
+-- | /O(1)/ Construct a 'LA' from a single key/value pair.
 singleton :: (Arrayed k, Arrayed v) => k -> v -> Map k v
 singleton k v = Map (Map.singleton k v) M0
 {-# INLINE singleton #-}
@@ -139,94 +111,40 @@ lookup !k (Map m0 la) = case Map.lookup k m0 of
   Nothing -> go la
   mv      -> mv
  where
-  {-# INLINE go #-}
-  go M0 = Nothing
-  go (M1 ka va)                       = lookup1 k ka va Nothing
-  go (M2 ka va kb vb _ _ _ _ m)       = lookup1 k ka va $ lookup1 k kb vb $ go m
-  go (M3 ka va kb vb kc vc _ _ _ _ m) = lookup1 k ka va $ lookup1 k kb vb $ lookup1 k kc vc $ go m
+  go M0                = Nothing
+  go (M1 as)           = lookup1 k as Nothing
+  go (M2 as bs _ m)    = lookup1 k as $ lookup1 k bs $ go m
+  go (M3 as bs cs _ m) = lookup1 k as $ lookup1 k bs $ lookup1 k cs $ go m
 {-# INLINE lookup #-}
 
-lookup1 :: (Ord k, Arrayed k, Arrayed v) => k -> Array k -> Array v -> Maybe v -> Maybe v
-lookup1 k ks vs r
+lookup1 :: (Ord k, Arrayed k, Arrayed v) => k -> Chunk k v -> Maybe v -> Maybe v
+lookup1 k (Chunk ks vs) r
   | j <- search (\i -> ks G.! i >= k) 0 (G.length ks - 1)
   , ks G.! j == k = Just $ vs G.! j
   | otherwise = r
 {-# INLINE lookup1 #-}
 
+zips :: (Arrayed k, Arrayed v) => Chunk k v -> Stream Id (k, v)
+zips (Chunk ks vs) = Stream.zip (G.stream ks) (G.stream vs)
+{-# INLINE zips #-}
+
+merge :: (Ord k, Arrayed k, Arrayed v) => Chunk k v -> Chunk k v -> Chunk k v
+merge as bs = case G.unstream $ zips as `Fusion.merge` zips bs of
+  V_Pair _ ks vs -> Chunk ks vs
+{-# INLINE merge #-}
+
 -- | O((log N)\/B) worst-case loads for each cache. Insert an element.
 insert :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
 insert k0 v0 (Map m0 xs0)
   | n0 <= _THRESHOLD = Map (Map.insert k0 v0 m0) xs0
-  | otherwise = Map Map.empty $ unsafeDupablePerformIO $ inserts (G.fromListN n0 (Map.keys m0)) (G.fromListN n0 (Foldable.toList m0)) xs0
+  | otherwise = Map Map.empty $ inserts (Chunk (G.fromListN n0 (Map.keys m0)) (G.fromListN n0 (Foldable.toList m0))) xs0
  where
   n0 = Map.size m0
-  inserts ka a M0 = return $ M1 ka a
-  inserts ka a (M1 kb b) = do
-    let n = G.length ka + G.length kb
-    kab <- GM.basicUnsafeNew n
-    ab  <- GM.basicUnsafeNew n
-    (ra,rb) <- steps ka a kb b 0 0 kab ab
-    return $ M2 ka a kb b ra rb kab ab M0
-  inserts ka a (M2 kb b kc c rb rc kbc bc xs) = do
-    (rb',rc') <- steps kb b kc c rb rc kbc bc
-    M3 ka a kb b kc c rb' rc' kbc bc <$> stepTail xs
-  inserts ka a (M3 kb b _ _ _ _ _ _ kcd cd xs) = do
-    let n = G.length ka + G.length kb
-    kab <- GM.basicUnsafeNew n
-    ab  <- GM.basicUnsafeNew n
-    (ra,rb) <- steps ka a kb b 0 0 kab ab
-    kcd' <- G.unsafeFreeze kcd
-    cd' <- G.unsafeFreeze cd
-    M2 ka a kb b ra rb kab ab <$> inserts kcd' cd' xs
-
-  stepTail (M2 kx x ky y rx ry kxy xy xs) = do
-    (rx',ry') <- steps kx x ky y rx ry kxy xy
-    M2 kx x ky y rx' ry' kxy xy <$> stepTail xs
-  stepTail (M3 kx x ky y kz z ry rz kyz yz xs) = do
-    (ry',rz') <- steps ky y kz z ry rz kyz yz
-    M3 kx x ky y kz z ry' rz' kyz yz <$> stepTail xs
-  stepTail m = return m
+  inserts as M0                 = M1 as
+  inserts as (M1 bs)            = M2 as bs (merge as bs) M0
+  inserts as (M2 bs cs bcs xs)  = M3 as bs cs bcs xs
+  inserts as (M3 bs _ _ cds xs) = cds `seq` M2 as bs (merge as bs) (inserts cds xs)
 {-# INLINE insert #-}
-
-steps :: (Ord k, Arrayed k, Arrayed v) => Array k -> Array v -> Array k -> Array v -> Int -> Int -> MArray RealWorld k -> MArray RealWorld v -> IO (Int, Int)
-steps ka a kb b ra0 rb0 kab ab = go ra0 rb0 where
-  n = min (ra0 + rb0 + _THRESHOLD) (GM.length kab)
-  na = G.length ka
-  nb = G.length kb
-  go !ra !rb
-    | r >= n = return (ra, rb)
-    | ra == na = do
-      k <- G.basicUnsafeIndexM kb rb
-      v <- G.basicUnsafeIndexM b rb
-      GM.basicUnsafeWrite kab r k
-      GM.basicUnsafeWrite ab r v
-      go ra (rb + 1)
-    | rb == nb = do
-      k <- G.basicUnsafeIndexM ka ra
-      v <- G.basicUnsafeIndexM a ra
-      GM.basicUnsafeWrite kab r k
-      GM.basicUnsafeWrite ab r v
-      go (ra + 1) rb
-    | otherwise = do
-      k1 <- G.basicUnsafeIndexM ka ra
-      k2 <- G.basicUnsafeIndexM kb rb
-      case compare k1 k2 of
-        LT -> do
-          v <- G.basicUnsafeIndexM a ra
-          GM.basicUnsafeWrite kab r k1
-          GM.basicUnsafeWrite ab r v
-          go (ra + 1) rb
-        EQ -> do -- collision, overwrite with newer value
-          v <- G.basicUnsafeIndexM a ra
-          GM.basicUnsafeWrite kab r k1
-          GM.basicUnsafeWrite ab r v
-          go (ra + 1) (rb + 1)
-        GT -> do
-          v <- G.basicUnsafeIndexM b rb
-          GM.basicUnsafeWrite kab r k2
-          GM.basicUnsafeWrite ab r v
-          go ra (rb + 1)
-    where r = ra + rb
 
 fromList :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
 fromList xs = List.foldl' (\m (k,v) -> insert k v m) empty xs

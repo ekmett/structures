@@ -92,10 +92,9 @@ library
     Data.Vector.Bloom.Util
     Data.Vector.Heap
     Data.Vector.Map
+    Data.Vector.Map.Deamortized
     Data.Vector.Map.Ephemeral
     Data.Vector.Map.Fusion
-    Data.Vector.Map.Persistent
-    Data.Vector.Map.Tuned
     Data.Vector.Set
     Data.Vector.Set.Fusion
     Data.Vector.Slow
