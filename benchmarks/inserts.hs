@@ -6,6 +6,7 @@ import Data.Map as M
 import Data.HashMap.Strict as H
 import Data.Vector.Map.Ephemeral as V
 import Data.Vector.Map.Persistent as P
+import Data.Vector.Map.Tuned as T
 import Data.Vector.Map as O
 import Control.DeepSeq
 import Control.Monad.Random
@@ -16,9 +17,13 @@ import Criterion.Main
 instance NFData (V.Map k v)
 instance NFData (O.Map k v)
 instance NFData (P.Map k v)
+instance NFData (T.Map k v)
 
 buildP :: Int -> P.Map Int Int
 buildP n = F.foldl' (flip (join P.insert)) P.empty $ take n $ randoms (mkStdGen 1)
+
+buildT :: Int -> T.Map Int Int
+buildT n = F.foldl' (flip (join T.insert)) T.empty $ take n $ randoms (mkStdGen 1)
 
 buildV :: Int -> V.Map Int Int
 buildV n = F.foldl' (flip (join V.insert)) V.empty $ take n $ randoms (mkStdGen 1)
@@ -42,16 +47,19 @@ main :: IO ()
 main = defaultMainWith defaultConfig { cfgSamples = ljust 10 } (return ())
   [ bench "Ephemeral insert 10k"     $ nf buildV 10000
   , bench "Persistent insert 10k"    $ nf buildP 10000
+  , bench "Tuned insert 10k"         $ nf buildT 10000
   , bench "Data.Map insert 10k"      $ nf buildM 10000
   , bench "Data.HashMap insert 10k"  $ nf buildH 10000
   , bench "WC insert 10k"            $ nf buildO 10000
   , bench "Ephemeral insert 100k"    $ nf buildV 100000
   , bench "Persistent insert 100k"   $ nf buildP 100000
+  , bench "Tuned insert 100k"        $ nf buildT 100000
   , bench "Data.Map insert 100k"     $ nf buildM 100000
   , bench "Data.HashMap insert 100k" $ nf buildH 100000
   , bench "Worstcase insert 100k"    $ nf buildO 100000
   , bench "Ephemeral insert 1m"      $ nf buildV 1000000
   , bench "Persistent insert 1m"     $ nf buildP 1000000
+  , bench "Tuned insert 1m"          $ nf buildT 1000000
   , bench "Data.Map insert 1m"       $ nf buildM 1000000
   , bench "Data.HashMap insert 1m"   $ nf buildH 1000000
   , bench "Overmars insert 1m"       $ nf buildO 1000000

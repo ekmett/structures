@@ -95,6 +95,7 @@ library
     Data.Vector.Map.Ephemeral
     Data.Vector.Map.Fusion
     Data.Vector.Map.Persistent
+    Data.Vector.Map.Tuned
     Data.Vector.Set
     Data.Vector.Set.Fusion
     Data.Vector.Slow
@@ -214,6 +215,7 @@ benchmark maps
   main-is:        maps.hs
   ghc-options:    -Wall
   hs-source-dirs: benchmarks
+  buildable: False
 
   if flag(optimized)
     ghc-options: -O2
@@ -239,6 +241,7 @@ benchmark lookups
   main-is:        lookups.hs
   ghc-options:    -Wall
   hs-source-dirs: benchmarks
+  buildable: False
 
   if flag(optimized)
     ghc-options: -O2
