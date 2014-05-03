@@ -76,9 +76,8 @@ _THRESHOLD = 1000
 
 data LA k a
   = M0
-  | M1 !(Chunk k a)
+  | M1 !(Chunk k a) !(LA k a)
   | M2 !(Chunk k a) !(Chunk k a) (Chunk k a) !(LA k a) -- merged chunk is deliberately lazy
-  | M3 !(Chunk k a) !(Chunk k a) !(Chunk k a) (Chunk k a) !(LA k a)
 
 data Chunk k a = Chunk !(Array k) !(Array a)
 
@@ -112,9 +111,8 @@ lookup !k (Map m0 la) = case Map.lookup k m0 of
   mv      -> mv
  where
   go M0                = Nothing
-  go (M1 as)           = lookup1 k as Nothing
+  go (M1 as m)         = lookup1 k as $ go m
   go (M2 as bs _ m)    = lookup1 k as $ lookup1 k bs $ go m
-  go (M3 as bs cs _ m) = lookup1 k as $ lookup1 k bs $ lookup1 k cs $ go m
 {-# INLINE lookup #-}
 
 lookup1 :: (Ord k, Arrayed k, Arrayed v) => k -> Chunk k v -> Maybe v -> Maybe v
@@ -140,10 +138,9 @@ insert k0 v0 (Map m0 xs0)
   | otherwise = Map Map.empty $ inserts (Chunk (G.fromListN n0 (Map.keys m0)) (G.fromListN n0 (Foldable.toList m0))) xs0
  where
   n0 = Map.size m0
-  inserts as M0                 = M1 as
-  inserts as (M1 bs)            = M2 as bs (merge as bs) M0
-  inserts as (M2 bs cs bcs xs)  = M3 as bs cs bcs xs
-  inserts as (M3 bs _ _ cds xs) = cds `seq` M2 as bs (merge as bs) (inserts cds xs)
+  inserts as M0                 = M1 as M0
+  inserts as (M1 bs xs)         = M2 as bs (merge as bs) xs
+  inserts as (M2 _ _ bcs xs)    = M1 as (inserts bcs xs)
 {-# INLINE insert #-}
 
 fromList :: (Ord k, Arrayed k, Arrayed v) => [(k,v)] -> Map k v
