@@ -66,7 +66,7 @@ library
   build-depends:
     base              >= 4     && < 5,
     containers        >= 0.5   && < 0.6,
-    contravariant     >= 0.4.2 && < 1,
+    contravariant     >= 0.4.2 && < 2,
     deepseq           >= 1.1   && < 1.4,
     free              >= 4.6.1 && < 5,
     ghc,
@@ -78,7 +78,7 @@ library
     parallel          >= 3.2   && < 3.3,
     primitive         >= 0.5   && < 0.6,
     semigroups        >= 0.9   && < 1,
-    transformers      >= 0.3   && < 0.4,
+    transformers      >= 0.3   && < 0.5,
     vector            >= 0.10  && < 0.11,
     vector-algorithms >= 0.5   && < 0.6
 
