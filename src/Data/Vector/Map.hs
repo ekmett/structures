@@ -133,7 +133,7 @@ merge as bs = case G.unstream $ zips as `Fusion.merge` zips bs of
   V_Pair _ ks vs -> Chunk ks vs
 {-# INLINE merge #-}
 
--- | O((log N)\/B) worst-case loads for each cache. Insert an element.
+-- | O((log N)\/B) amortized loads for each cache. Insert an element.
 insert :: (Ord k, Arrayed k, Arrayed v) => k -> v -> Map k v -> Map k v
 insert k0 v0 (Map m0 xs0)
   | n0 <= _THRESHOLD = Map (Map.insert k0 v0 m0) xs0
