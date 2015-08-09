@@ -1,7 +1,7 @@
 structures
 ==========
 
-[![Hackage](https://img.shields.io/hackage/v/structures.svg)](https://hackage.haskell.org/package/structures) [![Build Status](https://secure.travis-ci.org/ekmett/structures.png?branch=master)](http://travis-ci.org/ekmett/structures
+[![Hackage](https://img.shields.io/hackage/v/structures.svg)](https://hackage.haskell.org/package/structures) [![Build Status](https://secure.travis-ci.org/ekmett/structures.png?branch=master)](http://travis-ci.org/ekmett/structures)
 
 A playground for working with cache oblivious, succinct and compact data structures
 
