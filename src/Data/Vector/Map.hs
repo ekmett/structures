@@ -162,3 +162,4 @@ search p = go where
     where hml = h - l
           m = l + unsafeShiftR hml 1 + unsafeShiftR hml 6
 {-# INLINE search #-}
+

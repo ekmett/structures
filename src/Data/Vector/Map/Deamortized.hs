@@ -55,7 +55,7 @@ module Data.Vector.Map.Deamortized
 
 import Control.Applicative hiding (empty)
 import Data.Bits
-import Data.Foldable as Foldable
+import Data.Foldable as Foldable hiding (null) 
 import qualified Data.List as List
 import Data.Vector.Array
 import qualified Data.Map.Strict as Map
